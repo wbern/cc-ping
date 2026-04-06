@@ -208,4 +208,68 @@ describe("runPing", () => {
     expect(history[1].success).toBe(false);
     expect(history[1].error).toBe("timed out");
   });
+
+  it("outputs JSON when json option is true", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: true, durationMs: 100 },
+      { handle: "bob", success: false, durationMs: 200, error: "timed out" },
+    ]);
+    const stdout = vi.fn();
+    const stderr = vi.fn();
+    const accounts = [
+      { handle: "alice", configDir: "/tmp/alice" },
+      { handle: "bob", configDir: "/tmp/bob" },
+    ];
+
+    const exitCode = await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      json: true,
+      stdout,
+      stderr,
+    });
+
+    expect(exitCode).toBe(1);
+    expect(stdout).toHaveBeenCalledTimes(1);
+    const parsed = JSON.parse(stdout.mock.calls[0][0]);
+    expect(parsed).toHaveLength(2);
+    expect(parsed[0].handle).toBe("alice");
+    expect(parsed[0].success).toBe(true);
+    expect(parsed[1].handle).toBe("bob");
+    expect(parsed[1].success).toBe(false);
+    expect(parsed[1].error).toBe("timed out");
+  });
+
+  it("defaults to console.log when stdout not provided", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: true, durationMs: 100 },
+    ]);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, { parallel: false, quiet: false });
+
+    expect(logSpy).toHaveBeenCalled();
+    logSpy.mockRestore();
+  });
+
+  it("returns exit code 0 for JSON output when all pings succeed", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: true, durationMs: 100 },
+    ]);
+    const stdout = vi.fn();
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    const exitCode = await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      json: true,
+      stdout,
+      stderr: vi.fn(),
+    });
+
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout.mock.calls[0][0]);
+    expect(parsed[0].success).toBe(true);
+  });
 });

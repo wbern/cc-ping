@@ -7,6 +7,7 @@ import type { AccountConfig, PingMeta } from "./types.js";
 interface RunPingOptions {
   parallel: boolean;
   quiet: boolean;
+  json?: boolean;
   stdout?: (msg: string) => void;
   stderr?: (msg: string) => void;
 }
@@ -15,9 +16,10 @@ export async function runPing(
   accounts: AccountConfig[],
   options: RunPingOptions,
 ): Promise<number> {
+  const stdout = options.stdout ?? console.log;
   const logger = createLogger({
-    quiet: options.quiet,
-    stdout: options.stdout,
+    quiet: options.quiet || options.json === true,
+    stdout,
     stderr: options.stderr,
   });
 
@@ -59,6 +61,18 @@ export async function runPing(
   }
 
   const failed = results.filter((r) => !r.success).length;
+
+  if (options.json) {
+    const jsonResults = results.map((r) => ({
+      handle: r.handle,
+      success: r.success,
+      durationMs: r.durationMs,
+      error: r.error,
+    }));
+    stdout(JSON.stringify(jsonResults, null, 2));
+    return failed > 0 ? 1 : 0;
+  }
+
   if (failed > 0) {
     logger.error(`${failed}/${results.length} failed`);
     return 1;

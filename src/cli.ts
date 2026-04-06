@@ -35,6 +35,7 @@ program
   .description("Ping all configured accounts to start quota windows")
   .option("--parallel", "Ping all accounts in parallel", false)
   .option("-q, --quiet", "Suppress all output except errors (for cron)", false)
+  .option("--json", "Output results as JSON", false)
   .action(async (opts) => {
     const accounts = listAccounts();
     if (accounts.length === 0) {
@@ -46,6 +47,7 @@ program
     const exitCode = await runPing(accounts, {
       parallel: opts.parallel,
       quiet: opts.quiet,
+      json: opts.json,
     });
     process.exit(exitCode);
   });
@@ -105,10 +107,15 @@ program
 program
   .command("list")
   .description("List configured accounts")
-  .action(() => {
+  .option("--json", "Output as JSON", false)
+  .action((opts) => {
     const accounts = listAccounts();
     if (accounts.length === 0) {
-      console.log("No accounts configured");
+      console.log(opts.json ? "[]" : "No accounts configured");
+      return;
+    }
+    if (opts.json) {
+      console.log(JSON.stringify(accounts, null, 2));
       return;
     }
     for (const a of accounts) {
@@ -165,11 +172,16 @@ program
   .command("history")
   .description("Show recent ping history")
   .option("--limit <n>", "Number of entries to show", "20")
+  .option("--json", "Output as JSON", false)
   .action((opts) => {
     const limit = Number.parseInt(opts.limit, 10);
     const entries = readHistory(limit);
     if (entries.length === 0) {
-      console.log("No ping history");
+      console.log(opts.json ? "[]" : "No ping history");
+      return;
+    }
+    if (opts.json) {
+      console.log(JSON.stringify(entries, null, 2));
       return;
     }
     for (const entry of entries) {
