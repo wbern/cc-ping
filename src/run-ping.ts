@@ -3,15 +3,17 @@ import { appendHistoryEntry } from "./history.js";
 import { createLogger } from "./logger.js";
 import { pingAccounts } from "./ping.js";
 import { formatTimeRemaining, getWindowReset, recordPing } from "./state.js";
-import type { AccountConfig, PingMeta } from "./types.js";
+import type { AccountConfig, PingMeta, PingResult } from "./types.js";
 
 interface RunPingOptions {
   parallel: boolean;
   quiet: boolean;
   json?: boolean;
   bell?: boolean;
+  staggerMs?: number;
   stdout?: (msg: string) => void;
   stderr?: (msg: string) => void;
+  _sleep?: (ms: number) => Promise<void>;
 }
 
 export async function runPing(
@@ -26,9 +28,27 @@ export async function runPing(
   });
 
   logger.log(`Pinging ${accounts.length} account(s)...`);
-  const results = await pingAccounts(accounts, {
-    parallel: options.parallel,
-  });
+  const sleep =
+    options._sleep ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  let results: PingResult[];
+
+  if (options.staggerMs && options.staggerMs > 0 && accounts.length > 1) {
+    results = [];
+    for (let i = 0; i < accounts.length; i++) {
+      if (i > 0) {
+        const minutes = Math.round(options.staggerMs / 60_000);
+        logger.log(`  waiting ${minutes}m before next ping...`);
+        await sleep(options.staggerMs);
+      }
+      const [result] = await pingAccounts([accounts[i]], {});
+      results.push(result);
+    }
+  } else {
+    results = await pingAccounts(accounts, {
+      parallel: options.parallel,
+    });
+  }
 
   for (const r of results) {
     const status = r.success ? "ok" : "FAIL";

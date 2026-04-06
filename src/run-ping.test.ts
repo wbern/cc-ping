@@ -328,4 +328,80 @@ describe("runPing", () => {
 
     expect(mockRingBell).not.toHaveBeenCalled();
   });
+
+  it("staggers pings with delay between accounts", async () => {
+    mockPingAccounts
+      .mockResolvedValueOnce([
+        { handle: "alice", success: true, durationMs: 100 },
+      ])
+      .mockResolvedValueOnce([
+        { handle: "bob", success: true, durationMs: 100 },
+      ]);
+    const sleepFn = vi.fn().mockResolvedValue(undefined);
+    const accounts = [
+      { handle: "alice", configDir: "/tmp/alice" },
+      { handle: "bob", configDir: "/tmp/bob" },
+    ];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      staggerMs: 60_000,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+      _sleep: sleepFn,
+    });
+
+    expect(sleepFn).toHaveBeenCalledTimes(1);
+    expect(sleepFn).toHaveBeenCalledWith(60_000);
+    expect(mockPingAccounts).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses default sleep when _sleep not provided", async () => {
+    vi.useFakeTimers();
+    mockPingAccounts
+      .mockResolvedValueOnce([
+        { handle: "alice", success: true, durationMs: 100 },
+      ])
+      .mockResolvedValueOnce([
+        { handle: "bob", success: true, durationMs: 100 },
+      ]);
+    const accounts = [
+      { handle: "alice", configDir: "/tmp/alice" },
+      { handle: "bob", configDir: "/tmp/bob" },
+    ];
+
+    const promise = runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      staggerMs: 1000,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await promise;
+    vi.useRealTimers();
+
+    expect(mockPingAccounts).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not stagger with a single account", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: true, durationMs: 100 },
+    ]);
+    const sleepFn = vi.fn().mockResolvedValue(undefined);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      staggerMs: 60_000,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+      _sleep: sleepFn,
+    });
+
+    expect(sleepFn).not.toHaveBeenCalled();
+  });
 });

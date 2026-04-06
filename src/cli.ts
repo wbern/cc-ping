@@ -13,6 +13,7 @@ import { getNextReset } from "./next-reset.js";
 import { setConfigDir } from "./paths.js";
 import { runPing } from "./run-ping.js";
 import { scanAccounts } from "./scan.js";
+import { parseStagger } from "./stagger.js";
 import { formatStatusLine, getAccountStatuses } from "./status.js";
 import { suggestAccount } from "./suggest.js";
 
@@ -42,6 +43,10 @@ program
   .option("--json", "Output results as JSON", false)
   .option("-g, --group <group>", "Ping only accounts in this group")
   .option("--bell", "Ring terminal bell on ping failure", false)
+  .option(
+    "--stagger <minutes|auto>",
+    "Delay between account pings (minutes or 'auto')",
+  )
   .action(async (handles: string[], opts) => {
     const accounts = listAccounts();
     if (accounts.length === 0) {
@@ -54,11 +59,15 @@ program
       filterByGroup(accounts, opts.group),
       handles,
     );
+    const staggerMs = opts.stagger
+      ? parseStagger(opts.stagger, targets.length)
+      : undefined;
     const exitCode = await runPing(targets, {
       parallel: opts.parallel,
       quiet: opts.quiet,
       json: opts.json,
       bell: opts.bell,
+      staggerMs,
     });
     process.exit(exitCode);
   });
