@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { PingState } from "./types.js";
+import type { PingMeta, PingState } from "./types.js";
 
 const CONFIG_DIR = join(homedir(), ".config", "cc-ping");
 const STATE_FILE = join(CONFIG_DIR, "state.json");
@@ -21,10 +21,23 @@ export function saveState(state: PingState): void {
   writeFileSync(STATE_FILE, `${JSON.stringify(state, null, 2)}\n`);
 }
 
-export function recordPing(handle: string, timestamp: Date = new Date()): void {
+export function recordPing(
+  handle: string,
+  timestamp: Date = new Date(),
+  meta?: PingMeta,
+): void {
   const state = loadState();
   state.lastPing[handle] = timestamp.toISOString();
+  if (meta) {
+    if (!state.lastPingMeta) state.lastPingMeta = {};
+    state.lastPingMeta[handle] = meta;
+  }
   saveState(state);
+}
+
+export function getLastPingMeta(handle: string): PingMeta | null {
+  const state = loadState();
+  return state.lastPingMeta?.[handle] ?? null;
 }
 
 export function getLastPing(handle: string): Date | null {

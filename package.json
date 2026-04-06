@@ -14,6 +14,8 @@
     "prepublishOnly": "bash scripts/check-publish.sh && pnpm run build",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:e2e:ping": "E2E_PING=1 vitest run --config vitest.e2e.config.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",

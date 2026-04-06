@@ -17,6 +17,7 @@ const {
   saveState,
   recordPing,
   getLastPing,
+  getLastPingMeta,
   getWindowReset,
   formatTimeRemaining,
 } = await import("./state.js");
@@ -116,6 +117,66 @@ describe("state", () => {
       expect(result).not.toBeNull();
       expect(result?.resetAt.toISOString()).toBe("2025-01-01T05:00:00.000Z");
       expect(result?.remainingMs).toBe(4 * 60 * 60 * 1000); // 4 hours
+    });
+  });
+
+  describe("recordPing with metadata", () => {
+    const meta = {
+      costUsd: 0.003,
+      inputTokens: 10,
+      outputTokens: 5,
+      model: "claude-sonnet-4-20250514",
+      sessionId: "sess-1",
+    };
+
+    it("records metadata alongside timestamp", () => {
+      const ts = new Date("2025-03-15T10:00:00.000Z");
+      recordPing("alice", ts, meta);
+      const state = loadState();
+      expect(state.lastPing.alice).toBe("2025-03-15T10:00:00.000Z");
+      expect(state.lastPingMeta?.alice).toEqual(meta);
+    });
+
+    it("records ping without metadata (backward compat)", () => {
+      recordPing("bob", new Date("2025-03-15T10:00:00.000Z"));
+      const state = loadState();
+      expect(state.lastPing.bob).toBe("2025-03-15T10:00:00.000Z");
+      expect(state.lastPingMeta?.bob).toBeUndefined();
+    });
+
+    it("overwrites previous metadata for same handle", () => {
+      const ts = new Date("2025-03-15T10:00:00.000Z");
+      recordPing("alice", ts, meta);
+      const updated = { ...meta, costUsd: 0.005 };
+      recordPing("alice", new Date("2025-03-15T11:00:00.000Z"), updated);
+      const state = loadState();
+      expect(state.lastPingMeta?.alice).toEqual(updated);
+    });
+
+    it("loads state file without lastPingMeta field", () => {
+      saveState({ lastPing: { old: "2025-01-01T00:00:00.000Z" } });
+      const state = loadState();
+      expect(state.lastPing.old).toBe("2025-01-01T00:00:00.000Z");
+      expect(state.lastPingMeta).toBeUndefined();
+    });
+  });
+
+  describe("getLastPingMeta", () => {
+    it("returns null for unknown handle", () => {
+      expect(getLastPingMeta("unknown")).toBeNull();
+    });
+
+    it("returns PingMeta for known handle", () => {
+      const meta = {
+        costUsd: 0.003,
+        inputTokens: 10,
+        outputTokens: 5,
+        model: "claude-sonnet-4-20250514",
+        sessionId: "sess-1",
+      };
+      recordPing("alice", new Date("2025-03-15T10:00:00.000Z"), meta);
+      const result = getLastPingMeta("alice");
+      expect(result).toEqual(meta);
     });
   });
 
