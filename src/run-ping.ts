@@ -1,3 +1,4 @@
+import { appendHistoryEntry } from "./history.js";
 import { createLogger } from "./logger.js";
 import { pingAccounts } from "./ping.js";
 import { formatTimeRemaining, getWindowReset, recordPing } from "./state.js";
@@ -35,6 +36,13 @@ export async function runPing(
     logger.log(
       `  ${r.handle}: ${status} ${r.durationMs}ms${detail}${costInfo}`,
     );
+    appendHistoryEntry({
+      timestamp: new Date().toISOString(),
+      handle: r.handle,
+      success: r.success,
+      durationMs: r.durationMs,
+      error: r.error,
+    });
     if (r.success) {
       let meta: PingMeta | undefined;
       if (cr) {

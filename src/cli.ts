@@ -5,6 +5,7 @@ import {
   removeAccount,
   saveConfig,
 } from "./config.js";
+import { formatHistoryEntry, readHistory } from "./history.js";
 import { findDuplicates } from "./identity.js";
 import { setConfigDir } from "./paths.js";
 import { runPing } from "./run-ping.js";
@@ -132,6 +133,22 @@ program
     }
     for (const s of statuses) {
       console.log(formatStatusLine(s));
+    }
+  });
+
+program
+  .command("history")
+  .description("Show recent ping history")
+  .option("--limit <n>", "Number of entries to show", "20")
+  .action((opts) => {
+    const limit = Number.parseInt(opts.limit, 10);
+    const entries = readHistory(limit);
+    if (entries.length === 0) {
+      console.log("No ping history");
+      return;
+    }
+    for (const entry of entries) {
+      console.log(formatHistoryEntry(entry));
     }
   });
 

@@ -16,6 +16,7 @@ vi.mock("./ping.js", () => ({
 }));
 
 const { pingAccounts } = await import("./ping.js");
+const { readHistory } = await import("./history.js");
 const { runPing } = await import("./run-ping.js");
 
 const mockPingAccounts = vi.mocked(pingAccounts);
@@ -180,5 +181,31 @@ describe("runPing", () => {
     const allOutput = stdout.mock.calls.map((c) => c[0]).join("\n");
     expect(allOutput).toContain("$0.0030");
     expect(allOutput).toContain("15 tok");
+  });
+
+  it("records history entries for all ping results", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: true, durationMs: 100 },
+      { handle: "bob", success: false, durationMs: 200, error: "timed out" },
+    ]);
+    const accounts = [
+      { handle: "alice", configDir: "/tmp/alice" },
+      { handle: "bob", configDir: "/tmp/bob" },
+    ];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    const history = readHistory();
+    expect(history).toHaveLength(2);
+    expect(history[0].handle).toBe("alice");
+    expect(history[0].success).toBe(true);
+    expect(history[1].handle).toBe("bob");
+    expect(history[1].success).toBe(false);
+    expect(history[1].error).toBe("timed out");
   });
 });
