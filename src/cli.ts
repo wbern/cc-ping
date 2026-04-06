@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { checkAccounts } from "./check.js";
 import {
   addAccount,
   listAccounts,
@@ -54,6 +55,34 @@ program
       json: opts.json,
     });
     process.exit(exitCode);
+  });
+
+program
+  .command("check")
+  .description(
+    "Verify account config directories are valid and have credentials",
+  )
+  .option("--json", "Output as JSON", false)
+  .action((opts) => {
+    const accounts = listAccounts();
+    if (accounts.length === 0) {
+      console.log("No accounts configured");
+      return;
+    }
+    const results = checkAccounts(accounts);
+    if (opts.json) {
+      console.log(JSON.stringify(results, null, 2));
+      return;
+    }
+    for (const r of results) {
+      const status = r.healthy ? "healthy" : "UNHEALTHY";
+      const issues = r.issues.length > 0 ? ` (${r.issues.join("; ")})` : "";
+      console.log(`  ${r.handle}: ${status}${issues}`);
+    }
+    const unhealthy = results.filter((r) => !r.healthy).length;
+    if (unhealthy > 0) {
+      process.exit(1);
+    }
   });
 
 program
