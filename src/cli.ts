@@ -6,11 +6,9 @@ import {
   saveConfig,
 } from "./config.js";
 import { findDuplicates } from "./identity.js";
-import { pingAccounts } from "./ping.js";
+import { runPing } from "./run-ping.js";
 import { scanAccounts } from "./scan.js";
-import { formatTimeRemaining, getWindowReset, recordPing } from "./state.js";
 import { formatStatusLine, getAccountStatuses } from "./status.js";
-import type { PingMeta } from "./types.js";
 
 declare const __VERSION__: string;
 
@@ -23,6 +21,7 @@ program
   .command("ping")
   .description("Ping all configured accounts to start quota windows")
   .option("--parallel", "Ping all accounts in parallel", false)
+  .option("-q, --quiet", "Suppress all output except errors (for cron)", false)
   .action(async (opts) => {
     const accounts = listAccounts();
     if (accounts.length === 0) {
@@ -31,47 +30,11 @@ program
       );
       process.exit(1);
     }
-    console.log(`Pinging ${accounts.length} account(s)...`);
-    const results = await pingAccounts(accounts, { parallel: opts.parallel });
-    for (const r of results) {
-      const status = r.success ? "ok" : "FAIL";
-      const detail = r.error ? ` (${r.error})` : "";
-      const cr = r.claudeResponse;
-      const costInfo = cr
-        ? `  $${cr.total_cost_usd.toFixed(4)} ${cr.usage.input_tokens + cr.usage.output_tokens} tok`
-        : "";
-      console.log(
-        `  ${r.handle}: ${status} ${r.durationMs}ms${detail}${costInfo}`,
-      );
-      if (r.success) {
-        let meta: PingMeta | undefined;
-        if (cr) {
-          meta = {
-            costUsd: cr.total_cost_usd,
-            inputTokens: cr.usage.input_tokens,
-            outputTokens: cr.usage.output_tokens,
-            model: cr.model,
-            sessionId: cr.session_id,
-          };
-        }
-        recordPing(r.handle, new Date(), meta);
-      }
-    }
-    const failed = results.filter((r) => !r.success).length;
-    if (failed > 0) {
-      console.log(`\n${failed}/${results.length} failed`);
-      process.exit(1);
-    }
-    console.log(`\nAll ${results.length} accounts pinged successfully`);
-    console.log("\nWindow resets:");
-    for (const r of results) {
-      const window = getWindowReset(r.handle);
-      if (window) {
-        console.log(
-          `  ${r.handle}: resets in ${formatTimeRemaining(window.remainingMs)}`,
-        );
-      }
-    }
+    const exitCode = await runPing(accounts, {
+      parallel: opts.parallel,
+      quiet: opts.quiet,
+    });
+    process.exit(exitCode);
   });
 
 program
