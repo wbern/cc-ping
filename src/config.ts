@@ -21,13 +21,20 @@ export function saveConfig(config: Config): void {
   );
 }
 
-export function addAccount(handle: string, configDir: string): void {
+export function addAccount(
+  handle: string,
+  configDir: string,
+  group?: string,
+): void {
   const config = loadConfig();
   const existing = config.accounts.findIndex((a) => a.handle === handle);
   if (existing !== -1) {
     config.accounts[existing].configDir = configDir;
+    config.accounts[existing].group = group;
   } else {
-    config.accounts.push({ handle, configDir });
+    const account: AccountConfig = { handle, configDir };
+    if (group) account.group = group;
+    config.accounts.push(account);
   }
   saveConfig(config);
 }

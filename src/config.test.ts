@@ -72,4 +72,19 @@ describe("config", () => {
     const removed = removeAccount("nope");
     expect(removed).toBe(false);
   });
+
+  it("adds an account with a group", () => {
+    addAccount("acct1", "/path/to/acct1", "work");
+    const accounts = listAccounts();
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0].group).toBe("work");
+  });
+
+  it("updates group when re-adding existing account", () => {
+    addAccount("acct1", "/path", "work");
+    addAccount("acct1", "/path", "personal");
+    const accounts = listAccounts();
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0].group).toBe("personal");
+  });
 });

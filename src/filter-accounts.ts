@@ -14,3 +14,16 @@ export function filterAccounts(
   const set = new Set(handles);
   return accounts.filter((a) => set.has(a.handle));
 }
+
+export function filterByGroup(
+  accounts: AccountConfig[],
+  group: string | undefined,
+): AccountConfig[] {
+  if (!group) return accounts;
+
+  const filtered = accounts.filter((a) => a.group === group);
+  if (filtered.length === 0) {
+    throw new Error(`No accounts in group: ${group}`);
+  }
+  return filtered;
+}

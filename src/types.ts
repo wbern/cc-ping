@@ -1,6 +1,7 @@
 export interface AccountConfig {
   handle: string;
   configDir: string;
+  group?: string;
 }
 
 export interface ClaudeJsonResponse {

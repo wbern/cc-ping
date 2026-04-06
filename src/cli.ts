@@ -6,7 +6,7 @@ import {
   removeAccount,
   saveConfig,
 } from "./config.js";
-import { filterAccounts } from "./filter-accounts.js";
+import { filterAccounts, filterByGroup } from "./filter-accounts.js";
 import { formatHistoryEntry, readHistory } from "./history.js";
 import { findDuplicates } from "./identity.js";
 import { getNextReset } from "./next-reset.js";
@@ -40,6 +40,7 @@ program
   .option("--parallel", "Ping all accounts in parallel", false)
   .option("-q, --quiet", "Suppress all output except errors (for cron)", false)
   .option("--json", "Output results as JSON", false)
+  .option("-g, --group <group>", "Ping only accounts in this group")
   .action(async (handles: string[], opts) => {
     const accounts = listAccounts();
     if (accounts.length === 0) {
@@ -48,7 +49,10 @@ program
       );
       process.exit(1);
     }
-    const targets = filterAccounts(accounts, handles);
+    const targets = filterAccounts(
+      filterByGroup(accounts, opts.group),
+      handles,
+    );
     const exitCode = await runPing(targets, {
       parallel: opts.parallel,
       quiet: opts.quiet,
@@ -119,9 +123,11 @@ program
   .description("Add an account manually")
   .argument("<handle>", "Account handle/name")
   .argument("<config-dir>", "Path to the CLAUDE_CONFIG_DIR for this account")
-  .action((handle, configDir) => {
-    addAccount(handle, configDir);
-    console.log(`Added: ${handle} -> ${configDir}`);
+  .option("-g, --group <group>", "Assign account to a group")
+  .action((handle, configDir, opts) => {
+    addAccount(handle, configDir, opts.group);
+    const groupInfo = opts.group ? ` [${opts.group}]` : "";
+    console.log(`Added: ${handle} -> ${configDir}${groupInfo}`);
   });
 
 program
