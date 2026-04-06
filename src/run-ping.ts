@@ -1,6 +1,7 @@
 import { ringBell } from "./bell.js";
 import { appendHistoryEntry } from "./history.js";
 import { createLogger } from "./logger.js";
+import { sendNotification } from "./notify.js";
 import { pingAccounts } from "./ping.js";
 import { formatTimeRemaining, getWindowReset, recordPing } from "./state.js";
 import type { AccountConfig, PingMeta, PingResult } from "./types.js";
@@ -10,6 +11,7 @@ interface RunPingOptions {
   quiet: boolean;
   json?: boolean;
   bell?: boolean;
+  notify?: boolean;
   staggerMs?: number;
   stdout?: (msg: string) => void;
   stderr?: (msg: string) => void;
@@ -86,6 +88,16 @@ export async function runPing(
 
   if (failed > 0 && options.bell) {
     ringBell();
+  }
+
+  if (failed > 0 && options.notify) {
+    const failedHandles = results
+      .filter((r) => !r.success)
+      .map((r) => r.handle);
+    await sendNotification(
+      "cc-ping: ping failure",
+      `${failed} account(s) failed: ${failedHandles.join(", ")}`,
+    );
   }
 
   if (options.json) {

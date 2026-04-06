@@ -19,13 +19,19 @@ vi.mock("./bell.js", () => ({
   ringBell: vi.fn(),
 }));
 
+vi.mock("./notify.js", () => ({
+  sendNotification: vi.fn().mockResolvedValue(true),
+}));
+
 const { pingAccounts } = await import("./ping.js");
 const { ringBell } = await import("./bell.js");
+const { sendNotification } = await import("./notify.js");
 const { readHistory } = await import("./history.js");
 const { runPing } = await import("./run-ping.js");
 
 const mockPingAccounts = vi.mocked(pingAccounts);
 const mockRingBell = vi.mocked(ringBell);
+const mockSendNotification = vi.mocked(sendNotification);
 
 describe("runPing", () => {
   const stateDir = join(
@@ -403,5 +409,58 @@ describe("runPing", () => {
     });
 
     expect(sleepFn).not.toHaveBeenCalled();
+  });
+
+  it("sends desktop notification on failure when notify is true", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: false, durationMs: 100, error: "timed out" },
+    ]);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      notify: true,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(mockSendNotification).toHaveBeenCalledWith(
+      "cc-ping: ping failure",
+      "1 account(s) failed: alice",
+    );
+  });
+
+  it("does not send notification on success", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: true, durationMs: 100 },
+    ]);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      notify: true,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(mockSendNotification).not.toHaveBeenCalled();
+  });
+
+  it("does not send notification when notify is not set", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: false, durationMs: 100, error: "timed out" },
+    ]);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(mockSendNotification).not.toHaveBeenCalled();
   });
 });

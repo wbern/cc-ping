@@ -44,6 +44,7 @@ program
   .option("--json", "Output results as JSON", false)
   .option("-g, --group <group>", "Ping only accounts in this group")
   .option("--bell", "Ring terminal bell on ping failure", false)
+  .option("--notify", "Send desktop notification on ping failure", false)
   .option(
     "--stagger <minutes|auto>",
     "Delay between account pings (minutes or 'auto')",
@@ -68,6 +69,7 @@ program
       quiet: opts.quiet,
       json: opts.json,
       bell: opts.bell,
+      notify: opts.notify,
       staggerMs,
     });
     process.exit(exitCode);
