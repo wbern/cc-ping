@@ -6,6 +6,7 @@ import {
   saveConfig,
 } from "./config.js";
 import { findDuplicates } from "./identity.js";
+import { setConfigDir } from "./paths.js";
 import { runPing } from "./run-ping.js";
 import { scanAccounts } from "./scan.js";
 import { formatStatusLine, getAccountStatuses } from "./status.js";
@@ -15,7 +16,17 @@ declare const __VERSION__: string;
 const program = new Command()
   .name("cc-ping")
   .description("Ping Claude Code sessions to trigger quota windows early")
-  .version(__VERSION__);
+  .version(__VERSION__)
+  .option(
+    "--config <path>",
+    "Path to config directory (default: ~/.config/cc-ping, env: CC_PING_CONFIG)",
+  )
+  .hook("preAction", (thisCommand) => {
+    const opts = thisCommand.opts();
+    if (opts.config) {
+      setConfigDir(opts.config);
+    }
+  });
 
 program
   .command("ping")

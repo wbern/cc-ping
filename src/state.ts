@@ -1,24 +1,26 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { resolveConfigDir } from "./paths.js";
 import type { PingMeta, PingState } from "./types.js";
-
-const CONFIG_DIR = join(homedir(), ".config", "cc-ping");
-const STATE_FILE = join(CONFIG_DIR, "state.json");
 
 export const QUOTA_WINDOW_MS = 5 * 60 * 60 * 1000; // 5 hours
 
 export function loadState(): PingState {
-  if (!existsSync(STATE_FILE)) {
+  const stateFile = join(resolveConfigDir(), "state.json");
+  if (!existsSync(stateFile)) {
     return { lastPing: {} };
   }
-  const raw = readFileSync(STATE_FILE, "utf-8");
+  const raw = readFileSync(stateFile, "utf-8");
   return JSON.parse(raw) as PingState;
 }
 
 export function saveState(state: PingState): void {
-  mkdirSync(CONFIG_DIR, { recursive: true });
-  writeFileSync(STATE_FILE, `${JSON.stringify(state, null, 2)}\n`);
+  const configDir = resolveConfigDir();
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(
+    join(configDir, "state.json"),
+    `${JSON.stringify(state, null, 2)}\n`,
+  );
 }
 
 export function recordPing(

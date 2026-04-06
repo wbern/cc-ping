@@ -1,22 +1,24 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { resolveConfigDir } from "./paths.js";
 import type { AccountConfig, Config } from "./types.js";
 
-const CONFIG_DIR = join(homedir(), ".config", "cc-ping");
-const CONFIG_FILE = join(CONFIG_DIR, "config.json");
-
 export function loadConfig(): Config {
-  if (!existsSync(CONFIG_FILE)) {
+  const configFile = join(resolveConfigDir(), "config.json");
+  if (!existsSync(configFile)) {
     return { accounts: [] };
   }
-  const raw = readFileSync(CONFIG_FILE, "utf-8");
+  const raw = readFileSync(configFile, "utf-8");
   return JSON.parse(raw) as Config;
 }
 
 export function saveConfig(config: Config): void {
-  mkdirSync(CONFIG_DIR, { recursive: true });
-  writeFileSync(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`);
+  const configDir = resolveConfigDir();
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(
+    join(configDir, "config.json"),
+    `${JSON.stringify(config, null, 2)}\n`,
+  );
 }
 
 export function addAccount(handle: string, configDir: string): void {
