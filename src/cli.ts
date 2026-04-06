@@ -5,6 +5,7 @@ import {
   removeAccount,
   saveConfig,
 } from "./config.js";
+import { filterAccounts } from "./filter-accounts.js";
 import { formatHistoryEntry, readHistory } from "./history.js";
 import { findDuplicates } from "./identity.js";
 import { getNextReset } from "./next-reset.js";
@@ -32,11 +33,12 @@ const program = new Command()
 
 program
   .command("ping")
-  .description("Ping all configured accounts to start quota windows")
+  .description("Ping configured accounts to start quota windows")
+  .argument("[handles...]", "Specific account handles to ping (default: all)")
   .option("--parallel", "Ping all accounts in parallel", false)
   .option("-q, --quiet", "Suppress all output except errors (for cron)", false)
   .option("--json", "Output results as JSON", false)
-  .action(async (opts) => {
+  .action(async (handles: string[], opts) => {
     const accounts = listAccounts();
     if (accounts.length === 0) {
       console.error(
@@ -44,7 +46,8 @@ program
       );
       process.exit(1);
     }
-    const exitCode = await runPing(accounts, {
+    const targets = filterAccounts(accounts, handles);
+    const exitCode = await runPing(targets, {
       parallel: opts.parallel,
       quiet: opts.quiet,
       json: opts.json,
