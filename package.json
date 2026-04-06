@@ -1,0 +1,64 @@
+{
+  "name": "@wbern/cc-ping",
+  "version": "0.1.0",
+  "description": "Ping Claude Code sessions to trigger quota windows early across multiple accounts",
+  "type": "module",
+  "bin": {
+    "cc-ping": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "bash scripts/check-publish.sh && pnpm run build",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "knip": "knip --no-config-hints",
+    "prepare": "husky"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "quota",
+    "rate-limit",
+    "ping",
+    "session",
+    "multi-account"
+  ],
+  "license": "MIT",
+  "author": "William Bernting",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wbern/cc-ping.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "homepage": "https://github.com/wbern/cc-ping#readme",
+  "bugs": "https://github.com/wbern/cc-ping/issues",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "commander": "^13.1.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.0.0",
+    "@commitlint/cli": "^20.4.2",
+    "@commitlint/config-conventional": "^20.4.2",
+    "@secretlint/secretlint-rule-preset-recommend": "^11.3.1",
+    "@types/node": "^22.15.2",
+    "@vitest/coverage-v8": "^3.1.0",
+    "husky": "^9.1.7",
+    "knip": "^5.84.1",
+    "lint-staged": "^16.2.0",
+    "secretlint": "^11.3.1",
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.0"
+  }
+}

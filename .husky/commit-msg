@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# Exit early if CLAUDECODE environment variable is not set
+# This saves execution time for regular developers
+if [ "$CLAUDECODE" != "1" ]; then
+  exit 0
+fi
+
+# Only run commitlint when Claude Code is making commits
+if ! pnpm exec commitlint --edit "$1"; then
+  echo "Claude Code commit validation failed. Please fix the commit message format."
+  exit 1
+fi
