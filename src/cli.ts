@@ -5,9 +5,12 @@ import {
   removeAccount,
   saveConfig,
 } from "./config.js";
+import { findDuplicates } from "./identity.js";
 import { pingAccounts } from "./ping.js";
 import { scanAccounts } from "./scan.js";
 import { formatTimeRemaining, getWindowReset, recordPing } from "./state.js";
+import { formatStatusLine, getAccountStatuses } from "./status.js";
+import type { PingMeta } from "./types.js";
 
 declare const __VERSION__: string;
 
@@ -33,9 +36,25 @@ program
     for (const r of results) {
       const status = r.success ? "ok" : "FAIL";
       const detail = r.error ? ` (${r.error})` : "";
-      console.log(`  ${r.handle}: ${status} ${r.durationMs}ms${detail}`);
+      const cr = r.claudeResponse;
+      const costInfo = cr
+        ? `  $${cr.total_cost_usd.toFixed(4)} ${cr.usage.input_tokens + cr.usage.output_tokens} tok`
+        : "";
+      console.log(
+        `  ${r.handle}: ${status} ${r.durationMs}ms${detail}${costInfo}`,
+      );
       if (r.success) {
-        recordPing(r.handle);
+        let meta: PingMeta | undefined;
+        if (cr) {
+          meta = {
+            costUsd: cr.total_cost_usd,
+            inputTokens: cr.usage.input_tokens,
+            outputTokens: cr.usage.output_tokens,
+            model: cr.model,
+            sessionId: cr.session_id,
+          };
+        }
+        recordPing(r.handle, new Date(), meta);
       }
     }
     const failed = results.filter((r) => !r.success).length;
@@ -73,6 +92,15 @@ program
       saveConfig({ accounts: found });
       console.log("\nSaved to config.");
     }
+    const dupes = findDuplicates(found);
+    if (dupes.size > 0) {
+      console.log(
+        "\nWarning: duplicate accounts detected (same underlying identity):",
+      );
+      for (const group of dupes.values()) {
+        console.log(`  ${group.handles.join(", ")} (${group.email})`);
+      }
+    }
   });
 
 program
@@ -109,6 +137,27 @@ program
     }
     for (const a of accounts) {
       console.log(`  ${a.handle} -> ${a.configDir}`);
+    }
+  });
+
+program
+  .command("status")
+  .description("Show status of all accounts with window information")
+  .option("--json", "Output as JSON", false)
+  .action((opts) => {
+    const accounts = listAccounts();
+    if (accounts.length === 0) {
+      console.log("No accounts configured");
+      return;
+    }
+    const dupes = findDuplicates(accounts);
+    const statuses = getAccountStatuses(accounts, new Date(), dupes);
+    if (opts.json) {
+      console.log(JSON.stringify(statuses, null, 2));
+      return;
+    }
+    for (const s of statuses) {
+      console.log(formatStatusLine(s));
     }
   });
 
