@@ -7,6 +7,7 @@ import {
 } from "./config.js";
 import { formatHistoryEntry, readHistory } from "./history.js";
 import { findDuplicates } from "./identity.js";
+import { getNextReset } from "./next-reset.js";
 import { setConfigDir } from "./paths.js";
 import { runPing } from "./run-ping.js";
 import { scanAccounts } from "./scan.js";
@@ -134,6 +135,30 @@ program
     for (const s of statuses) {
       console.log(formatStatusLine(s));
     }
+  });
+
+program
+  .command("next-reset")
+  .description("Show which account has its quota window resetting soonest")
+  .option("--json", "Output as JSON", false)
+  .action((opts) => {
+    const accounts = listAccounts();
+    if (accounts.length === 0) {
+      console.log("No accounts configured");
+      return;
+    }
+    const result = getNextReset(accounts);
+    if (!result) {
+      console.log("No active quota windows");
+      return;
+    }
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    console.log(
+      `${result.handle}: resets in ${result.timeUntilReset} (${result.configDir})`,
+    );
   });
 
 program
