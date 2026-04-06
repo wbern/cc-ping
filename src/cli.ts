@@ -13,6 +13,7 @@ import { setConfigDir } from "./paths.js";
 import { runPing } from "./run-ping.js";
 import { scanAccounts } from "./scan.js";
 import { formatStatusLine, getAccountStatuses } from "./status.js";
+import { suggestAccount } from "./suggest.js";
 
 declare const __VERSION__: string;
 
@@ -168,6 +169,33 @@ program
     }
     console.log(
       `${result.handle}: resets in ${result.timeUntilReset} (${result.configDir})`,
+    );
+  });
+
+program
+  .command("suggest")
+  .description("Suggest which account to use next based on quota window state")
+  .option("--json", "Output as JSON", false)
+  .action((opts) => {
+    const accounts = listAccounts();
+    if (accounts.length === 0) {
+      console.log("No accounts configured");
+      return;
+    }
+    const result = suggestAccount(accounts);
+    if (!result) {
+      console.log("No accounts configured");
+      return;
+    }
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    const resetInfo = result.timeUntilReset
+      ? `, resets in ${result.timeUntilReset}`
+      : "";
+    console.log(
+      `${result.handle} (${result.reason}${resetInfo}) -> ${result.configDir}`,
     );
   });
 
