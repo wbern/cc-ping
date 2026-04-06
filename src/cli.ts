@@ -41,6 +41,7 @@ program
   .option("-q, --quiet", "Suppress all output except errors (for cron)", false)
   .option("--json", "Output results as JSON", false)
   .option("-g, --group <group>", "Ping only accounts in this group")
+  .option("--bell", "Ring terminal bell on ping failure", false)
   .action(async (handles: string[], opts) => {
     const accounts = listAccounts();
     if (accounts.length === 0) {
@@ -57,6 +58,7 @@ program
       parallel: opts.parallel,
       quiet: opts.quiet,
       json: opts.json,
+      bell: opts.bell,
     });
     process.exit(exitCode);
   });

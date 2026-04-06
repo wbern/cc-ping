@@ -1,3 +1,4 @@
+import { ringBell } from "./bell.js";
 import { appendHistoryEntry } from "./history.js";
 import { createLogger } from "./logger.js";
 import { pingAccounts } from "./ping.js";
@@ -8,6 +9,7 @@ interface RunPingOptions {
   parallel: boolean;
   quiet: boolean;
   json?: boolean;
+  bell?: boolean;
   stdout?: (msg: string) => void;
   stderr?: (msg: string) => void;
 }
@@ -61,6 +63,10 @@ export async function runPing(
   }
 
   const failed = results.filter((r) => !r.success).length;
+
+  if (failed > 0 && options.bell) {
+    ringBell();
+  }
 
   if (options.json) {
     const jsonResults = results.map((r) => ({

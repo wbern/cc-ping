@@ -15,11 +15,17 @@ vi.mock("./ping.js", () => ({
   pingAccounts: vi.fn(),
 }));
 
+vi.mock("./bell.js", () => ({
+  ringBell: vi.fn(),
+}));
+
 const { pingAccounts } = await import("./ping.js");
+const { ringBell } = await import("./bell.js");
 const { readHistory } = await import("./history.js");
 const { runPing } = await import("./run-ping.js");
 
 const mockPingAccounts = vi.mocked(pingAccounts);
+const mockRingBell = vi.mocked(ringBell);
 
 describe("runPing", () => {
   const stateDir = join(
@@ -271,5 +277,55 @@ describe("runPing", () => {
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout.mock.calls[0][0]);
     expect(parsed[0].success).toBe(true);
+  });
+
+  it("rings bell on failure when bell option is true", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: false, durationMs: 100, error: "timed out" },
+    ]);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      bell: true,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(mockRingBell).toHaveBeenCalled();
+  });
+
+  it("does not ring bell on success even when bell option is true", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: true, durationMs: 100 },
+    ]);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      bell: true,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(mockRingBell).not.toHaveBeenCalled();
+  });
+
+  it("does not ring bell when bell option is not set", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: false, durationMs: 100, error: "timed out" },
+    ]);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(mockRingBell).not.toHaveBeenCalled();
   });
 });
