@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { checkAccounts } from "./check.js";
+import { generateCompletion } from "./completions.js";
 import {
   addAccount,
   listAccounts,
@@ -264,6 +265,14 @@ program
     for (const entry of entries) {
       console.log(formatHistoryEntry(entry));
     }
+  });
+
+program
+  .command("completions")
+  .description("Generate shell completion script")
+  .argument("<shell>", "Shell type: bash, zsh, or fish")
+  .action((shell: string) => {
+    console.log(generateCompletion(shell));
   });
 
 program.parse();
