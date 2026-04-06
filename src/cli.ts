@@ -7,6 +7,7 @@ import {
 } from "./config.js";
 import { pingAccounts } from "./ping.js";
 import { scanAccounts } from "./scan.js";
+import { formatTimeRemaining, getWindowReset, recordPing } from "./state.js";
 
 declare const __VERSION__: string;
 
@@ -33,6 +34,9 @@ program
       const status = r.success ? "ok" : "FAIL";
       const detail = r.error ? ` (${r.error})` : "";
       console.log(`  ${r.handle}: ${status} ${r.durationMs}ms${detail}`);
+      if (r.success) {
+        recordPing(r.handle);
+      }
     }
     const failed = results.filter((r) => !r.success).length;
     if (failed > 0) {
@@ -40,6 +44,15 @@ program
       process.exit(1);
     }
     console.log(`\nAll ${results.length} accounts pinged successfully`);
+    console.log("\nWindow resets:");
+    for (const r of results) {
+      const window = getWindowReset(r.handle);
+      if (window) {
+        console.log(
+          `  ${r.handle}: resets in ${formatTimeRemaining(window.remainingMs)}`,
+        );
+      }
+    }
   });
 
 program

@@ -13,3 +13,7 @@ export interface PingResult {
 export interface Config {
   accounts: AccountConfig[];
 }
+
+export interface PingState {
+  lastPing: Record<string, string>; // handle -> ISO 8601 timestamp
+}
