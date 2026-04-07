@@ -27,6 +27,7 @@ const { pingAccounts } = await import("./ping.js");
 const { ringBell } = await import("./bell.js");
 const { sendNotification } = await import("./notify.js");
 const { readHistory } = await import("./history.js");
+const { recordPing } = await import("./state.js");
 const { runPing } = await import("./run-ping.js");
 
 const mockPingAccounts = vi.mocked(pingAccounts);
@@ -431,7 +432,7 @@ describe("runPing", () => {
     );
   });
 
-  it("does not send notification on success", async () => {
+  it("sends new window notification with sound when ping succeeds with no prior window", async () => {
     mockPingAccounts.mockResolvedValue([
       { handle: "alice", success: true, durationMs: 100 },
     ]);
@@ -445,7 +446,11 @@ describe("runPing", () => {
       stderr: vi.fn(),
     });
 
-    expect(mockSendNotification).not.toHaveBeenCalled();
+    expect(mockSendNotification).toHaveBeenCalledWith(
+      "cc-ping: new window",
+      "1 account(s) ready: alice",
+      { sound: true },
+    );
   });
 
   it("does not send notification when notify is not set", async () => {
@@ -462,5 +467,111 @@ describe("runPing", () => {
     });
 
     expect(mockSendNotification).not.toHaveBeenCalled();
+  });
+
+  it("does not send new window notification when account already has active window", async () => {
+    recordPing("alice", new Date());
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: true, durationMs: 100 },
+    ]);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      notify: true,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(mockSendNotification).not.toHaveBeenCalled();
+  });
+
+  it("does not send new window notification when notify is not set", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: true, durationMs: 100 },
+    ]);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(mockSendNotification).not.toHaveBeenCalled();
+  });
+
+  it("sends both failure and new window notifications when mixed results", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: true, durationMs: 100 },
+      { handle: "bob", success: false, durationMs: 200, error: "timed out" },
+    ]);
+    const accounts = [
+      { handle: "alice", configDir: "/tmp/alice" },
+      { handle: "bob", configDir: "/tmp/bob" },
+    ];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      notify: true,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(mockSendNotification).toHaveBeenCalledWith(
+      "cc-ping: ping failure",
+      "1 account(s) failed: bob",
+    );
+    expect(mockSendNotification).toHaveBeenCalledWith(
+      "cc-ping: new window",
+      "1 account(s) ready: alice",
+      { sound: true },
+    );
+  });
+
+  it("includes wake delay in new window notification when wakeDelayMs is set", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: true, durationMs: 100 },
+    ]);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      notify: true,
+      wakeDelayMs: 2 * 60 * 60 * 1000 + 15 * 60 * 1000, // 2h 15m
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(mockSendNotification).toHaveBeenCalledWith(
+      "cc-ping: new window",
+      "1 account(s) ready: alice (woke 2h 15m late)",
+      { sound: true },
+    );
+  });
+
+  it("does not include wake delay in notification when wakeDelayMs is not set", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: true, durationMs: 100 },
+    ]);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      notify: true,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(mockSendNotification).toHaveBeenCalledWith(
+      "cc-ping: new window",
+      "1 account(s) ready: alice",
+      { sound: true },
+    );
   });
 });

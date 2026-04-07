@@ -17,11 +17,12 @@ import { filterAccounts, filterByGroup } from "./filter-accounts.js";
 import { formatHistoryEntry, readHistory } from "./history.js";
 import { findDuplicates } from "./identity.js";
 import { getNextReset } from "./next-reset.js";
+import { sendNotification } from "./notify.js";
 import { setConfigDir } from "./paths.js";
 import { runPing } from "./run-ping.js";
 import { scanAccounts } from "./scan.js";
 import { parseStagger } from "./stagger.js";
-import { formatStatusLine, getAccountStatuses } from "./status.js";
+import { getAccountStatuses, printAccountTable } from "./status.js";
 import { suggestAccount } from "./suggest.js";
 
 declare const __VERSION__: string;
@@ -187,20 +188,14 @@ program
   .description("Show status of all accounts with window information")
   .option("--json", "Output as JSON", false)
   .action((opts) => {
-    const accounts = listAccounts();
-    if (accounts.length === 0) {
-      console.log("No accounts configured");
-      return;
-    }
-    const dupes = findDuplicates(accounts);
-    const statuses = getAccountStatuses(accounts, new Date(), dupes);
     if (opts.json) {
+      const accounts = listAccounts();
+      const dupes = findDuplicates(accounts);
+      const statuses = getAccountStatuses(accounts, new Date(), dupes);
       console.log(JSON.stringify(statuses, null, 2));
       return;
     }
-    for (const s of statuses) {
-      console.log(formatStatusLine(s));
-    }
+    printAccountTable();
   });
 
 program
@@ -210,16 +205,16 @@ program
   .action((opts) => {
     const accounts = listAccounts();
     if (accounts.length === 0) {
-      console.log("No accounts configured");
+      console.log(opts.json ? "null" : "No accounts configured");
       return;
     }
     const result = getNextReset(accounts);
-    if (!result) {
-      console.log("No active quota windows");
+    if (opts.json) {
+      console.log(JSON.stringify(result ?? null, null, 2));
       return;
     }
-    if (opts.json) {
-      console.log(JSON.stringify(result, null, 2));
+    if (!result) {
+      console.log("No active quota windows");
       return;
     }
     console.log(
@@ -234,16 +229,16 @@ program
   .action((opts) => {
     const accounts = listAccounts();
     if (accounts.length === 0) {
-      console.log("No accounts configured");
+      console.log(opts.json ? "null" : "No accounts configured");
       return;
     }
     const result = suggestAccount(accounts);
-    if (!result) {
-      console.log("No accounts configured");
+    if (opts.json) {
+      console.log(JSON.stringify(result ?? null, null, 2));
       return;
     }
-    if (opts.json) {
-      console.log(JSON.stringify(result, null, 2));
+    if (!result) {
+      console.log("No accounts configured");
       return;
     }
     const resetInfo = result.timeUntilReset
@@ -283,6 +278,24 @@ program
     console.log(generateCompletion(shell));
   });
 
+program
+  .command("moo")
+  .description("Send a test notification to verify desktop notifications work")
+  .action(async () => {
+    const ok = await sendNotification(
+      "cc-ping",
+      "Moo! Notifications are working.",
+    );
+    if (ok) {
+      console.log("Notification sent");
+    } else {
+      console.error(
+        "Notification failed (unsupported platform or command error)",
+      );
+      process.exit(1);
+    }
+  });
+
 const daemon = program
   .command("daemon")
   .description("Run auto-ping on a schedule");
@@ -309,6 +322,7 @@ daemon
       process.exit(1);
     }
     console.log(`Daemon started (PID: ${result.pid})`);
+    printAccountTable();
   });
 
 daemon
@@ -330,7 +344,16 @@ daemon
   .action((opts) => {
     const status = getDaemonStatus();
     if (opts.json) {
-      console.log(JSON.stringify(status, null, 2));
+      if (!status.running) {
+        console.log(JSON.stringify(status, null, 2));
+        return;
+      }
+      const accounts = listAccounts();
+      const dupes = findDuplicates(accounts);
+      const accountStatuses = getAccountStatuses(accounts, new Date(), dupes);
+      console.log(
+        JSON.stringify({ ...status, accounts: accountStatuses }, null, 2),
+      );
       return;
     }
     if (!status.running) {
@@ -343,6 +366,11 @@ daemon
       `  Interval: ${Math.round((status.intervalMs ?? 0) / 60_000)}m`,
     );
     console.log(`  Uptime: ${status.uptime}`);
+    if (status.nextPingIn) {
+      console.log(`  Next ping in: ${status.nextPingIn}`);
+    }
+    console.log("");
+    printAccountTable();
   });
 
 daemon

@@ -1,4 +1,6 @@
+import { listAccounts } from "./config.js";
 import type { DuplicateGroup } from "./identity.js";
+import { findDuplicates } from "./identity.js";
 import {
   formatTimeRemaining,
   getLastPing,
@@ -85,4 +87,20 @@ export function getAccountStatuses(
       duplicateOf,
     };
   });
+}
+
+export function printAccountTable(
+  log: (msg: string) => void = console.log,
+  now: Date = new Date(),
+): void {
+  const accounts = listAccounts();
+  if (accounts.length === 0) {
+    log("No accounts configured");
+    return;
+  }
+  const dupes = findDuplicates(accounts);
+  const statuses = getAccountStatuses(accounts, now, dupes);
+  for (const s of statuses) {
+    log(formatStatusLine(s));
+  }
 }

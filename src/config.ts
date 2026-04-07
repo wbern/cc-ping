@@ -8,8 +8,12 @@ export function loadConfig(): Config {
   if (!existsSync(configFile)) {
     return { accounts: [] };
   }
-  const raw = readFileSync(configFile, "utf-8");
-  return JSON.parse(raw) as Config;
+  try {
+    const raw = readFileSync(configFile, "utf-8");
+    return JSON.parse(raw) as Config;
+  } catch {
+    return { accounts: [] };
+  }
 }
 
 export function saveConfig(config: Config): void {

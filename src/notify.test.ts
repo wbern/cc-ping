@@ -8,6 +8,15 @@ describe("buildNotifyCommand", () => {
     expect(args).toContain("-e");
     expect(args[1]).toContain("Title");
     expect(args[1]).toContain("Body text");
+    expect(args[1]).not.toContain("sound name");
+  });
+
+  it("includes sound name in osascript command when sound option is true", () => {
+    const [cmd, args] = buildNotifyCommand("Title", "Body text", "darwin", {
+      sound: true,
+    })!;
+    expect(cmd).toBe("osascript");
+    expect(args[1]).toContain('sound name "default"');
   });
 
   it("returns notify-send command on linux", () => {
@@ -37,7 +46,10 @@ describe("sendNotification", () => {
         cb(null),
     );
 
-    const result = await sendNotification("Title", "Body", "darwin", exec);
+    const result = await sendNotification("Title", "Body", {
+      platform: "darwin",
+      exec,
+    });
     expect(result).toBe(true);
     expect(exec).toHaveBeenCalledWith(
       "osascript",
@@ -52,14 +64,40 @@ describe("sendNotification", () => {
         cb(new Error("not found")),
     );
 
-    const result = await sendNotification("Title", "Body", "darwin", exec);
+    const result = await sendNotification("Title", "Body", {
+      platform: "darwin",
+      exec,
+    });
     expect(result).toBe(false);
   });
 
   it("returns false on unsupported platform", async () => {
     const exec = vi.fn();
-    const result = await sendNotification("Title", "Body", "freebsd", exec);
+    const result = await sendNotification("Title", "Body", {
+      platform: "freebsd",
+      exec,
+    });
     expect(result).toBe(false);
     expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("uses platform and exec defaults when opts not provided", async () => {
+    const result = await sendNotification("Title", "Body");
+    expect(typeof result).toBe("boolean");
+  });
+
+  it("passes sound option through to osascript command", async () => {
+    const exec = vi.fn(
+      (_cmd: string, _args: string[], cb: (error: Error | null) => void) =>
+        cb(null),
+    );
+
+    await sendNotification("Title", "Body", {
+      platform: "darwin",
+      exec,
+      sound: true,
+    });
+    const args = exec.mock.calls[0][1] as string[];
+    expect(args[1]).toContain('sound name "default"');
   });
 });

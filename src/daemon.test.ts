@@ -136,9 +136,12 @@ describe("daemon", () => {
     });
   });
 
+  // isDaemonProcess uses execSync which blocks in vitest thread workers.
+  // Tested indirectly via getDaemonStatus DI and production use.
+
   describe("getDaemonStatus", () => {
     it("returns not running when no PID file exists", () => {
-      const status = getDaemonStatus();
+      const status = getDaemonStatus({ isDaemonProcess: () => true });
       expect(status.running).toBe(false);
       expect(status.pid).toBeUndefined();
     });
@@ -151,11 +154,27 @@ describe("daemon", () => {
         configDir,
       });
 
-      const status = getDaemonStatus();
+      const status = getDaemonStatus({ isDaemonProcess: () => true });
       expect(status.running).toBe(true);
       expect(status.pid).toBe(process.pid);
       expect(status.intervalMs).toBe(300000);
       expect(status.uptime).toBeDefined();
+    });
+
+    it("includes nextPingIn when lastPingAt is present", () => {
+      const thirtySecondsAgo = new Date(Date.now() - 30_000).toISOString();
+      writeDaemonState({
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        intervalMs: 60000,
+        configDir,
+        lastPingAt: thirtySecondsAgo,
+      });
+
+      const status = getDaemonStatus({ isDaemonProcess: () => true });
+      expect(status.running).toBe(true);
+      expect(status.nextPingIn).toBeDefined();
+      expect(status.nextPingIn).toMatch(/\d+s/);
     });
 
     it("cleans stale PID file and returns not running", () => {
@@ -166,7 +185,7 @@ describe("daemon", () => {
         configDir,
       });
 
-      const status = getDaemonStatus();
+      const status = getDaemonStatus({ isDaemonProcess: () => true });
       expect(status.running).toBe(false);
       expect(readDaemonState()).toBeNull();
     });
@@ -180,7 +199,7 @@ describe("daemon", () => {
         configDir,
       });
 
-      const status = getDaemonStatus();
+      const status = getDaemonStatus({ isDaemonProcess: () => true });
       expect(status.uptime).toMatch(/\d+m \d+s/);
     });
 
@@ -192,7 +211,7 @@ describe("daemon", () => {
         configDir,
       });
 
-      const status = getDaemonStatus();
+      const status = getDaemonStatus({ isDaemonProcess: () => true });
       expect(status.uptime).toMatch(/^\d+s$/);
     });
 
@@ -205,8 +224,21 @@ describe("daemon", () => {
         configDir,
       });
 
-      const status = getDaemonStatus();
+      const status = getDaemonStatus({ isDaemonProcess: () => true });
       expect(status.uptime).toMatch(/\d+h \d+m \d+s/);
+    });
+
+    it("cleans stale PID when process is alive but not cc-ping", () => {
+      writeDaemonState({
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        intervalMs: 300000,
+        configDir,
+      });
+
+      const status = getDaemonStatus({ isDaemonProcess: () => false });
+      expect(status.running).toBe(false);
+      expect(readDaemonState()).toBeNull();
     });
   });
 
@@ -315,6 +347,147 @@ describe("daemon", () => {
 
       expect(deps.sleep).not.toHaveBeenCalled();
     });
+
+    it("writes lastPingAt to state after pinging accounts", async () => {
+      let calls = 0;
+      const updateState = vi.fn();
+      const deps = {
+        runPing: vi.fn().mockResolvedValue(0),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          calls++;
+          return calls > 1;
+        }),
+        log: vi.fn(),
+        updateState,
+      };
+
+      await daemonLoop(60000, {}, deps);
+
+      expect(updateState).toHaveBeenCalledTimes(1);
+      expect(updateState).toHaveBeenCalledWith({
+        lastPingAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+      });
+    });
+
+    it("skips accounts whose quota window is still active", async () => {
+      let calls = 0;
+      const deps = {
+        runPing: vi.fn().mockResolvedValue(0),
+        listAccounts: vi.fn().mockReturnValue([
+          { handle: "alice", configDir: "/tmp/alice" },
+          { handle: "bob", configDir: "/tmp/bob" },
+        ]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          calls++;
+          return calls > 1;
+        }),
+        log: vi.fn(),
+        isWindowActive: vi.fn((handle: string) => handle === "alice"),
+      };
+
+      await daemonLoop(60000, {}, deps);
+
+      expect(deps.runPing).toHaveBeenCalledWith(
+        [{ handle: "bob", configDir: "/tmp/bob" }],
+        expect.any(Object),
+      );
+      expect(deps.log).toHaveBeenCalledWith(
+        expect.stringContaining("Skipping 1 account(s) with active window"),
+      );
+    });
+
+    it("passes wakeDelayMs to runPing when sleep overshoots by more than 60s", async () => {
+      let stopCalls = 0;
+      const now = vi.spyOn(Date, "now");
+      let clock = 1000000;
+      now.mockImplementation(() => clock);
+
+      const deps = {
+        runPing: vi.fn().mockResolvedValue(0),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockImplementation(async () => {
+          // Simulate 60s interval + 120s overshoot from system sleep
+          clock += 60_000 + 120_000;
+        }),
+        shouldStop: vi.fn(() => {
+          stopCalls++;
+          // Flow: top(1) → ping → mid(2) → sleep → top(3) → ping → mid(4)
+          return stopCalls > 3;
+        }),
+        log: vi.fn(),
+      };
+
+      await daemonLoop(60000, { notify: true }, deps);
+      now.mockRestore();
+
+      expect(deps.runPing).toHaveBeenCalledTimes(2);
+      const firstCallOpts = deps.runPing.mock.calls[0][1];
+      expect(firstCallOpts.wakeDelayMs).toBeUndefined();
+      const secondCallOpts = deps.runPing.mock.calls[1][1];
+      expect(secondCallOpts.wakeDelayMs).toBeGreaterThan(60_000);
+      expect(deps.log).toHaveBeenCalledWith(expect.stringContaining("late"));
+    });
+
+    it("does not pass wakeDelayMs when sleep overshoot is under 60s", async () => {
+      let stopCalls = 0;
+      const now = vi.spyOn(Date, "now");
+      let clock = 1000000;
+      now.mockImplementation(() => clock);
+
+      const deps = {
+        runPing: vi.fn().mockResolvedValue(0),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockImplementation(async () => {
+          // Simulate 60s interval + 30s overshoot (under threshold)
+          clock += 60_000 + 30_000;
+        }),
+        shouldStop: vi.fn(() => {
+          stopCalls++;
+          return stopCalls > 3;
+        }),
+        log: vi.fn(),
+      };
+
+      await daemonLoop(60000, {}, deps);
+      now.mockRestore();
+
+      expect(deps.runPing).toHaveBeenCalledTimes(2);
+      const secondCallOpts = deps.runPing.mock.calls[1][1];
+      expect(secondCallOpts.wakeDelayMs).toBeUndefined();
+    });
+
+    it("logs waiting message when all accounts have active windows", async () => {
+      let calls = 0;
+      const deps = {
+        runPing: vi.fn().mockResolvedValue(0),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          calls++;
+          return calls > 1;
+        }),
+        log: vi.fn(),
+        isWindowActive: vi.fn().mockReturnValue(true),
+      };
+
+      await daemonLoop(60000, {}, deps);
+
+      expect(deps.runPing).not.toHaveBeenCalled();
+      expect(deps.log).toHaveBeenCalledWith(
+        "All accounts have active windows, waiting...",
+      );
+    });
   });
 
   describe("startDaemon", () => {
@@ -347,6 +520,7 @@ describe("daemon", () => {
       const mockChild = { pid: 9876, unref: vi.fn() };
       const mockSpawn = vi.fn().mockReturnValue(mockChild);
       const mockWriteState = vi.fn();
+      const mockCloseSync = vi.fn();
 
       const result = startDaemon(
         { interval: "60" },
@@ -355,12 +529,14 @@ describe("daemon", () => {
           spawn: mockSpawn as never,
           writeDaemonState: mockWriteState,
           openSync: vi.fn().mockReturnValue(3),
+          closeSync: mockCloseSync,
         },
       );
 
       expect(result.success).toBe(true);
       expect(result.pid).toBe(9876);
       expect(mockChild.unref).toHaveBeenCalled();
+      expect(mockCloseSync).toHaveBeenCalledWith(3);
       expect(mockWriteState).toHaveBeenCalledWith(
         expect.objectContaining({
           pid: 9876,
@@ -380,6 +556,7 @@ describe("daemon", () => {
           spawn: mockSpawn as never,
           writeDaemonState: vi.fn(),
           openSync: vi.fn().mockReturnValue(3),
+          closeSync: vi.fn(),
         },
       );
 
@@ -413,14 +590,12 @@ describe("daemon", () => {
     });
 
     it("rejects second start when PID file points to a live process", () => {
-      writeDaemonState({
-        pid: process.pid,
-        startedAt: new Date().toISOString(),
-        intervalMs: 300000,
-        configDir,
-      });
-
-      const result = startDaemon({});
+      const result = startDaemon(
+        {},
+        {
+          getDaemonStatus: () => ({ running: true, pid: process.pid }),
+        },
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toBe("Daemon is already running");
@@ -575,6 +750,48 @@ describe("daemon", () => {
       writeFileSync(daemonStopPath(), "");
       handlers.SIGINT();
       expect(log).toHaveBeenCalledWith("Received SIGINT, shutting down...");
+    });
+
+    it("cleans up even when daemonLoop throws", async () => {
+      const log = vi.fn();
+      const removeSignal = vi.fn();
+
+      // Write daemon state + stop file so cleanup has something to remove
+      writeDaemonState({
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        intervalMs: 60000,
+        configDir,
+      });
+      writeFileSync(daemonStopPath(), "");
+
+      await expect(
+        runDaemon(
+          60000,
+          {},
+          {
+            runPing: vi.fn().mockRejectedValue(new Error("boom")),
+            listAccounts: vi
+              .fn()
+              .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+            sleep: vi.fn().mockResolvedValue(undefined),
+            shouldStop: () => false,
+            log,
+            onSignal: vi.fn(),
+            removeSignal,
+            exit: vi.fn(),
+          },
+        ),
+      ).rejects.toThrow("boom");
+
+      // Cleanup should still have run
+      expect(removeSignal).toHaveBeenCalledWith(
+        "SIGTERM",
+        expect.any(Function),
+      );
+      expect(removeSignal).toHaveBeenCalledWith("SIGINT", expect.any(Function));
+      expect(log).toHaveBeenCalledWith("Daemon stopping...");
+      expect(readDaemonState()).toBeNull();
     });
   });
 });

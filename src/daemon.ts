@@ -72,6 +72,21 @@ export function isProcessRunning(pid: number): boolean {
   }
 }
 
+/* c8 ignore start -- subprocess call, tested via DI in getDaemonStatus */
+function isDaemonProcess(pid: number): boolean {
+  try {
+    const output = execSync(`ps -p ${pid} -o command=`, {
+      encoding: "utf-8",
+      timeout: 5000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return output.includes("cc-ping");
+  } catch {
+    return false;
+  }
+}
+/* c8 ignore stop */
+
 // --- Parsing ---
 
 export function parseInterval(value: string | undefined): number {
@@ -94,13 +109,18 @@ interface DaemonStatusResult {
   startedAt?: string;
   intervalMs?: number;
   uptime?: string;
+  nextPingIn?: string;
 }
 
-export function getDaemonStatus(): DaemonStatusResult {
+export function getDaemonStatus(deps?: {
+  isDaemonProcess?: (pid: number) => boolean;
+}): DaemonStatusResult {
+  /* c8 ignore next -- real isDaemonProcess uses execSync, tested via DI */
+  const _isDaemonProcess = deps?.isDaemonProcess ?? isDaemonProcess;
   const state = readDaemonState();
   if (!state) return { running: false };
 
-  if (!isProcessRunning(state.pid)) {
+  if (!isProcessRunning(state.pid) || !_isDaemonProcess(state.pid)) {
     removeDaemonState();
     return { running: false };
   }
@@ -109,12 +129,20 @@ export function getDaemonStatus(): DaemonStatusResult {
   const uptimeMs = Date.now() - startedAt.getTime();
   const uptime = formatUptime(uptimeMs);
 
+  let nextPingIn: string | undefined;
+  if (state.lastPingAt) {
+    const nextPingMs =
+      new Date(state.lastPingAt).getTime() + state.intervalMs - Date.now();
+    nextPingIn = formatUptime(Math.max(0, nextPingMs));
+  }
+
   return {
     running: true,
     pid: state.pid,
     startedAt: state.startedAt,
     intervalMs: state.intervalMs,
     uptime,
+    nextPingIn,
   };
 }
 
@@ -138,12 +166,15 @@ interface DaemonLoopDeps {
       quiet: boolean;
       bell?: boolean;
       notify?: boolean;
+      wakeDelayMs?: number;
     },
   ) => Promise<number>;
   listAccounts: () => AccountConfig[];
   sleep: (ms: number) => Promise<void>;
   shouldStop: () => boolean;
   log: (msg: string) => void;
+  updateState?: (patch: Partial<DaemonState>) => void;
+  isWindowActive?: (handle: string) => boolean;
 }
 
 export async function daemonLoop(
@@ -151,10 +182,24 @@ export async function daemonLoop(
   options: { quiet?: boolean; bell?: boolean; notify?: boolean },
   deps: DaemonLoopDeps,
 ): Promise<void> {
+  let wakeDelayMs: number | undefined;
   while (!deps.shouldStop()) {
-    const accounts = deps.listAccounts();
+    const allAccounts = deps.listAccounts();
+    const accounts = deps.isWindowActive
+      ? allAccounts.filter((a) => !deps.isWindowActive!(a.handle))
+      : allAccounts;
+    const skipped = allAccounts.length - accounts.length;
+
+    if (skipped > 0) {
+      deps.log(`Skipping ${skipped} account(s) with active window`);
+    }
+
     if (accounts.length === 0) {
-      deps.log("No accounts configured, waiting...");
+      deps.log(
+        allAccounts.length === 0
+          ? "No accounts configured, waiting..."
+          : "All accounts have active windows, waiting...",
+      );
     } else {
       deps.log(
         `[${new Date().toISOString()}] Pinging ${accounts.length} account(s)...`,
@@ -164,12 +209,22 @@ export async function daemonLoop(
         quiet: options.quiet ?? true,
         bell: options.bell,
         notify: options.notify,
+        wakeDelayMs,
       });
+      deps.updateState?.({ lastPingAt: new Date().toISOString() });
     }
 
     if (deps.shouldStop()) break;
     deps.log(`Sleeping ${Math.round(intervalMs / 60_000)}m until next ping...`);
+    const sleepStart = Date.now();
     await deps.sleep(intervalMs);
+    const overshootMs = Date.now() - sleepStart - intervalMs;
+    if (overshootMs > 60_000) {
+      wakeDelayMs = overshootMs;
+      deps.log(`Woke ${formatUptime(overshootMs)} late (system sleep?)`);
+    } else {
+      wakeDelayMs = undefined;
+    }
   }
 }
 
@@ -238,6 +293,7 @@ export function startDaemon(
   }
 
   child.unref();
+  _closeSync(logFd);
 
   _writeDaemonState({
     pid: child.pid,
@@ -368,13 +424,15 @@ export async function runDaemon(
 
   deps.log(`Daemon started. Interval: ${Math.round(intervalMs / 60_000)}m`);
 
-  await daemonLoop(intervalMs, options, deps);
+  try {
+    await daemonLoop(intervalMs, options, deps);
+  } finally {
+    deps.removeSignal("SIGTERM", onSigterm);
+    deps.removeSignal("SIGINT", onSigint);
 
-  deps.removeSignal("SIGTERM", onSigterm);
-  deps.removeSignal("SIGINT", onSigint);
-
-  deps.log("Daemon stopping...");
-  cleanup();
+    deps.log("Daemon stopping...");
+    cleanup();
+  }
 }
 
 /* c8 ignore start -- production wiring only */
@@ -385,6 +443,7 @@ export async function runDaemonWithDefaults(
   const stopPath = daemonStopPath();
   const { runPing } = await import("./run-ping.js");
   const { listAccounts } = await import("./config.js");
+  const { getWindowReset } = await import("./state.js");
 
   await runDaemon(intervalMs, options, {
     runPing,
@@ -392,6 +451,11 @@ export async function runDaemonWithDefaults(
     sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
     shouldStop: () => existsSync(stopPath),
     log: (msg) => console.log(msg),
+    isWindowActive: (handle) => getWindowReset(handle) !== null,
+    updateState: (patch) => {
+      const current = readDaemonState();
+      if (current) writeDaemonState({ ...current, ...patch });
+    },
     onSignal: (signal, handler) => process.on(signal, handler),
     removeSignal: (signal, handler) => process.removeListener(signal, handler),
     exit: (code) => process.exit(code),

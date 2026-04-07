@@ -10,13 +10,14 @@ export function buildNotifyCommand(
   title: string,
   body: string,
   platform: string,
+  options?: { sound?: boolean },
 ): [string, string[]] | null {
   switch (platform) {
-    case "darwin":
-      return [
-        "osascript",
-        ["-e", `display notification "${body}" with title "${title}"`],
-      ];
+    case "darwin": {
+      let script = `display notification "${body}" with title "${title}"`;
+      if (options?.sound) script += ` sound name "default"`;
+      return ["osascript", ["-e", script]];
+    }
     case "linux":
       return ["notify-send", [title, body]];
     case "win32":
@@ -35,10 +36,11 @@ export function buildNotifyCommand(
 export function sendNotification(
   title: string,
   body: string,
-  platform: string = process.platform,
-  exec: ExecFn = defaultExecFile,
+  opts?: { platform?: string; exec?: ExecFn; sound?: boolean },
 ): Promise<boolean> {
-  const cmd = buildNotifyCommand(title, body, platform);
+  const platform = opts?.platform ?? process.platform;
+  const exec = opts?.exec ?? defaultExecFile;
+  const cmd = buildNotifyCommand(title, body, platform, { sound: opts?.sound });
   if (!cmd) return Promise.resolve(false);
 
   return new Promise((resolve) => {

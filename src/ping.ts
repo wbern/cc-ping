@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { parseClaudeResponse } from "./parse.js";
+import { generatePrompt } from "./prompt.js";
 import type { AccountConfig, PingResult } from "./types.js";
 
 export function formatExecError(error: Error): string {
@@ -19,7 +20,16 @@ function pingOne(account: AccountConfig): Promise<PingResult> {
   return new Promise((resolve) => {
     const child = execFile(
       "claude",
-      ["-p", "ping", "--output-format", "json", "--tools", ""],
+      [
+        "-p",
+        generatePrompt(),
+        "--output-format",
+        "json",
+        "--tools",
+        "",
+        "--max-turns",
+        "1",
+      ],
       {
         env: { ...process.env, CLAUDE_CONFIG_DIR: account.configDir },
         timeout: 30_000,

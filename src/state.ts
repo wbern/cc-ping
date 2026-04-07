@@ -10,8 +10,12 @@ export function loadState(): PingState {
   if (!existsSync(stateFile)) {
     return { lastPing: {} };
   }
-  const raw = readFileSync(stateFile, "utf-8");
-  return JSON.parse(raw) as PingState;
+  try {
+    const raw = readFileSync(stateFile, "utf-8");
+    return JSON.parse(raw) as PingState;
+  } catch {
+    return { lastPing: {} };
+  }
 }
 
 export function saveState(state: PingState): void {
@@ -58,6 +62,7 @@ export function getWindowReset(
   const resetAt = new Date(lastPing.getTime() + QUOTA_WINDOW_MS);
   const remainingMs = resetAt.getTime() - now.getTime();
   if (remainingMs <= 0) return null;
+  if (remainingMs > QUOTA_WINDOW_MS) return null;
   return { resetAt, remainingMs };
 }
 

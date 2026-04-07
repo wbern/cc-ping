@@ -1,4 +1,4 @@
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -47,6 +47,12 @@ describe("state", () => {
       const state = { lastPing: { alice: "2025-01-01T00:00:00.000Z" } };
       saveState(state);
       expect(loadState()).toEqual(state);
+    });
+
+    it("returns empty state for corrupt file", () => {
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(join(stateDir, "state.json"), "not json{{{");
+      expect(loadState()).toEqual({ lastPing: {} });
     });
   });
 
@@ -117,6 +123,14 @@ describe("state", () => {
       expect(result).not.toBeNull();
       expect(result?.resetAt.toISOString()).toBe("2025-01-01T05:00:00.000Z");
       expect(result?.remainingMs).toBe(4 * 60 * 60 * 1000); // 4 hours
+    });
+
+    it("returns null when clock drift makes remainingMs exceed quota window", () => {
+      const futureTime = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours in the future
+      recordPing("alice", futureTime);
+      const now = new Date();
+      const result = getWindowReset("alice", now);
+      expect(result).toBeNull();
     });
   });
 

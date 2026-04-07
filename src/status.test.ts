@@ -11,8 +11,21 @@ vi.mock("node:os", async () => {
   };
 });
 
+vi.mock("./config.js", () => ({
+  listAccounts: vi.fn(() => []),
+  loadConfig: vi.fn(() => ({ accounts: [] })),
+  saveConfig: vi.fn(),
+}));
+
+vi.mock("./identity.js", () => ({
+  findDuplicates: vi.fn(() => new Map()),
+}));
+
+const { listAccounts } = await import("./config.js");
+const { findDuplicates } = await import("./identity.js");
 const { recordPing } = await import("./state.js");
-const { getAccountStatuses, formatStatusLine } = await import("./status.js");
+const { getAccountStatuses, formatStatusLine, printAccountTable } =
+  await import("./status.js");
 
 describe("getAccountStatuses", () => {
   const stateDir = join(
@@ -227,5 +240,87 @@ describe("formatStatusLine", () => {
       lastTokens: null,
     });
     expect(line).not.toContain("duplicate");
+  });
+});
+
+describe("printAccountTable", () => {
+  const stateDir = join(
+    tmpdir(),
+    `cc-ping-status-${process.pid}`,
+    ".config",
+    "cc-ping",
+  );
+
+  beforeEach(() => {
+    rmSync(stateDir, { recursive: true, force: true });
+    vi.mocked(listAccounts).mockReturnValue([]);
+    vi.mocked(findDuplicates).mockReturnValue(new Map());
+  });
+
+  afterEach(() => {
+    rmSync(stateDir, { recursive: true, force: true });
+  });
+
+  it("prints 'No accounts configured' when no accounts exist", () => {
+    const lines: string[] = [];
+    printAccountTable((msg: string) => lines.push(msg));
+    expect(lines).toEqual(["No accounts configured"]);
+  });
+
+  it("prints status lines for configured accounts", () => {
+    vi.mocked(listAccounts).mockReturnValue([
+      { handle: "alice", configDir: "/tmp/alice" },
+      { handle: "bob", configDir: "/tmp/bob" },
+    ]);
+    recordPing("alice", new Date("2025-01-01T00:00:00.000Z"));
+
+    const lines: string[] = [];
+    printAccountTable((msg: string) => lines.push(msg));
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("alice");
+    expect(lines[1]).toContain("bob");
+    expect(lines[1]).toContain("unknown");
+  });
+
+  it("uses console.log by default", () => {
+    vi.mocked(listAccounts).mockReturnValue([
+      { handle: "alice", configDir: "/tmp/alice" },
+    ]);
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    printAccountTable();
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("alice"));
+    spy.mockRestore();
+  });
+
+  it("forwards now parameter to getAccountStatuses", () => {
+    vi.mocked(listAccounts).mockReturnValue([
+      { handle: "alice", configDir: "/tmp/alice" },
+    ]);
+    recordPing("alice", new Date("2025-01-01T00:00:00.000Z"));
+
+    const lines: string[] = [];
+    const now = new Date("2025-01-01T01:00:00.000Z");
+    printAccountTable((msg: string) => lines.push(msg), now);
+    expect(lines[0]).toContain("active");
+    expect(lines[0]).toContain("resets in 4h 0m");
+  });
+
+  it("passes duplicates to getAccountStatuses", () => {
+    const dupes = new Map([
+      [
+        "uuid-same",
+        { handles: ["bernting", "bernting.se"], email: "w@bernting.se" },
+      ],
+    ]);
+    vi.mocked(listAccounts).mockReturnValue([
+      { handle: "bernting", configDir: "/tmp/bernting" },
+      { handle: "bernting.se", configDir: "/tmp/bernting.se" },
+    ]);
+    vi.mocked(findDuplicates).mockReturnValue(dupes);
+
+    const lines: string[] = [];
+    printAccountTable((msg: string) => lines.push(msg));
+    expect(lines[0]).toContain("[duplicate of bernting.se]");
+    expect(lines[1]).toContain("[duplicate of bernting]");
   });
 });

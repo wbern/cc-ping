@@ -13,6 +13,7 @@ interface RunPingOptions {
   bell?: boolean;
   notify?: boolean;
   staggerMs?: number;
+  wakeDelayMs?: number;
   stdout?: (msg: string) => void;
   stderr?: (msg: string) => void;
   _sleep?: (ms: number) => Promise<void>;
@@ -28,6 +29,13 @@ export async function runPing(
     stdout,
     stderr: options.stderr,
   });
+
+  const hadNoWindow = new Set<string>();
+  for (const a of accounts) {
+    if (!getWindowReset(a.handle)) {
+      hadNoWindow.add(a.handle);
+    }
+  }
 
   logger.log(`Pinging ${accounts.length} account(s)...`);
   const sleep =
@@ -98,6 +106,19 @@ export async function runPing(
       "cc-ping: ping failure",
       `${failed} account(s) failed: ${failedHandles.join(", ")}`,
     );
+  }
+
+  if (options.notify) {
+    const newWindows = results
+      .filter((r) => r.success && hadNoWindow.has(r.handle))
+      .map((r) => r.handle);
+    if (newWindows.length > 0) {
+      let body = `${newWindows.length} account(s) ready: ${newWindows.join(", ")}`;
+      if (options.wakeDelayMs) {
+        body += ` (woke ${formatTimeRemaining(options.wakeDelayMs)} late)`;
+      }
+      await sendNotification("cc-ping: new window", body, { sound: true });
+    }
   }
 
   if (options.json) {

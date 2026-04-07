@@ -1,4 +1,4 @@
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -32,6 +32,14 @@ describe("config", () => {
   it("returns empty config when no file exists", () => {
     const config = loadConfig();
     expect(config).toEqual({ accounts: [] });
+  });
+
+  it("returns empty config for corrupt file", () => {
+    const homeDir = join(tmpdir(), `cc-ping-home-${process.pid}`);
+    const configDir = join(homeDir, ".config", "cc-ping");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, "config.json"), "not json{{{");
+    expect(loadConfig()).toEqual({ accounts: [] });
   });
 
   it("saves and loads config", () => {

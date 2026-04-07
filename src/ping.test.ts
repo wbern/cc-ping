@@ -128,12 +128,24 @@ describe("pingAccounts", () => {
     expect(results[0].claudeResponse!.is_error).toBe(true);
   });
 
-  it("passes correct CLI args to execFile", async () => {
+  it("passes generated prompt and disables tools in CLI args", async () => {
     setupMock(null, validJson);
     await pingAccounts([{ handle: "a", configDir: "/tmp/a" }]);
+    const args = mockExecFile.mock.calls[0][1] as string[];
+    expect(args).toContain("-p");
+    expect(args).toContain("--output-format");
+    expect(args).toContain("json");
+    expect(args).toContain("--tools");
+    expect(args).toContain("");
+    expect(args).toContain("--max-turns");
+    expect(args).toContain("1");
+    // Should use a generated prompt, not the literal "ping"
+    const promptIdx = args.indexOf("-p");
+    expect(args[promptIdx + 1]).not.toBe("ping");
+    expect(args[promptIdx + 1]).toMatch(/\d+/);
     expect(mockExecFile).toHaveBeenCalledWith(
       "claude",
-      ["-p", "ping", "--output-format", "json", "--tools", ""],
+      expect.any(Array),
       expect.objectContaining({
         env: expect.objectContaining({ CLAUDE_CONFIG_DIR: "/tmp/a" }),
         timeout: 30_000,

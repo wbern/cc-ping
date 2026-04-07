@@ -1,5 +1,5 @@
 const COMMANDS =
-  "ping scan add remove list status next-reset history suggest check completions daemon";
+  "ping scan add remove list status next-reset history suggest check completions moo daemon";
 
 function bashCompletion(): string {
   return `_cc_ping() {
@@ -65,6 +65,7 @@ _cc_ping() {
     'suggest:Suggest next account'
     'check:Verify account health'
     'completions:Generate shell completions'
+    'moo:Send a test notification'
     'daemon:Run auto-ping on a schedule'
   )
 
@@ -142,7 +143,7 @@ _cc_ping
 
 function fishCompletion(): string {
   return `# Fish completions for cc-ping
-set -l commands ping scan add remove list status next-reset history suggest check completions
+set -l commands ping scan add remove list status next-reset history suggest check completions moo
 
 complete -c cc-ping -f
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a ping -d "Ping configured accounts"
@@ -156,6 +157,7 @@ complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a history -d
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a suggest -d "Suggest next account"
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a check -d "Verify account health"
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a completions -d "Generate shell completions"
+complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a moo -d "Send a test notification"
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a daemon -d "Run auto-ping on a schedule"
 
 complete -c cc-ping -n "__fish_seen_subcommand_from ping" -l parallel -d "Ping in parallel"

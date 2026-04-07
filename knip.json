@@ -3,5 +3,11 @@
   "entry": ["src/cli.ts"],
   "project": ["src/**/*.ts"],
   "ignore": ["src/**/*.test.ts", "src/__tests__/**"],
-  "ignoreDependencies": ["@secretlint/secretlint-rule-preset-recommend"]
+  "ignoreDependencies": [
+    "@secretlint/secretlint-rule-preset-recommend",
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/github",
+    "@semantic-release/npm",
+    "@semantic-release/release-notes-generator"
+  ]
 }
