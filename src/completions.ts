@@ -34,8 +34,10 @@ function bashCompletion(): string {
       ;;
     daemon)
       if [[ \${COMP_CWORD} -eq 2 ]]; then
-        COMPREPLY=( $(compgen -W "start stop status" -- "\${cur}") )
+        COMPREPLY=( $(compgen -W "start stop status install uninstall" -- "\${cur}") )
       elif [[ "\${COMP_WORDS[2]}" == "start" && "\${cur}" == -* ]]; then
+        COMPREPLY=( $(compgen -W "--interval --quiet --bell --notify" -- "\${cur}") )
+      elif [[ "\${COMP_WORDS[2]}" == "install" && "\${cur}" == -* ]]; then
         COMPREPLY=( $(compgen -W "--interval --quiet --bell --notify" -- "\${cur}") )
       elif [[ "\${COMP_WORDS[2]}" == "status" && "\${cur}" == -* ]]; then
         COMPREPLY=( $(compgen -W "--json" -- "\${cur}") )
@@ -110,6 +112,8 @@ _cc_ping() {
             'start:Start the daemon process'
             'stop:Stop the daemon process'
             'status:Show daemon status'
+            'install:Install as system service'
+            'uninstall:Remove system service'
           )
           _arguments '1:subcommand:->subcmd' '*::arg:->subargs'
           case $state in
@@ -118,7 +122,7 @@ _cc_ping() {
               ;;
             subargs)
               case $words[1] in
-                start)
+                start|install)
                   _arguments \\
                     '--interval[Ping interval in minutes]:minutes:' \\
                     '--quiet[Suppress ping output]' \\
@@ -172,13 +176,15 @@ complete -c cc-ping -n "__fish_seen_subcommand_from list history status next-res
 complete -c cc-ping -n "__fish_seen_subcommand_from add" -s g -l group -r -d "Assign group"
 complete -c cc-ping -n "__fish_seen_subcommand_from completions" -a "bash zsh fish"
 
-complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from start stop status" -a start -d "Start the daemon"
-complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from start stop status" -a stop -d "Stop the daemon"
-complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from start stop status" -a status -d "Show daemon status"
-complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start" -l interval -r -d "Ping interval in minutes"
-complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start" -s q -l quiet -d "Suppress output"
-complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start" -l bell -d "Ring bell on failure"
-complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start" -l notify -d "Send notification on failure"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from start stop status install uninstall" -a start -d "Start the daemon"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from start stop status install uninstall" -a stop -d "Stop the daemon"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from start stop status install uninstall" -a status -d "Show daemon status"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from start stop status install uninstall" -a install -d "Install as system service"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from start stop status install uninstall" -a uninstall -d "Remove system service"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start install" -l interval -r -d "Ping interval in minutes"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start install" -s q -l quiet -d "Suppress output"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start install" -l bell -d "Ring bell on failure"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start install" -l notify -d "Send notification on failure"
 complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from status" -l json -d "JSON output"
 `;
 }

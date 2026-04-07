@@ -9,9 +9,11 @@ import {
 } from "./config.js";
 import {
   getDaemonStatus,
+  readDaemonState,
   runDaemonWithDefaults,
   startDaemon,
   stopDaemon,
+  writeDaemonState,
 } from "./daemon.js";
 import { filterAccounts, filterByGroup } from "./filter-accounts.js";
 import { formatHistoryEntry, readHistory } from "./history.js";
@@ -310,7 +312,7 @@ daemon
   .option("-q, --quiet", "Suppress ping output", false)
   .option("--bell", "Ring terminal bell on ping failure", false)
   .option("--notify", "Send desktop notification on ping failure", false)
-  .action((opts) => {
+  .action(async (opts) => {
     const result = startDaemon({
       interval: opts.interval,
       quiet: opts.quiet,
@@ -322,6 +324,13 @@ daemon
       process.exit(1);
     }
     console.log(`Daemon started (PID: ${result.pid})`);
+    const { getServiceStatus } = await import("./service.js");
+    const svc = getServiceStatus();
+    if (!svc.installed) {
+      console.log(
+        "Hint: won't survive a reboot. Use `daemon install` for a persistent service.",
+      );
+    }
     printAccountTable();
   });
 
@@ -335,29 +344,58 @@ daemon
       process.exit(1);
     }
     console.log(`Daemon stopped (PID: ${result.pid})`);
+    const { getServiceStatus } = await import("./service.js");
+    const svc = getServiceStatus();
+    if (svc.installed) {
+      console.log(
+        "Note: system service is installed. The daemon may restart. Use `daemon uninstall` to fully remove.",
+      );
+    }
   });
 
 daemon
   .command("status")
   .description("Show daemon status")
   .option("--json", "Output as JSON", false)
-  .action((opts) => {
+  .action(async (opts) => {
+    const { getServiceStatus } = await import("./service.js");
+    const svc = getServiceStatus();
     const status = getDaemonStatus();
     if (opts.json) {
+      const serviceInfo = svc.installed
+        ? {
+            service: {
+              installed: true,
+              path: svc.servicePath,
+              platform: svc.platform,
+            },
+          }
+        : { service: { installed: false } };
       if (!status.running) {
-        console.log(JSON.stringify(status, null, 2));
+        console.log(JSON.stringify({ ...status, ...serviceInfo }, null, 2));
         return;
       }
       const accounts = listAccounts();
       const dupes = findDuplicates(accounts);
       const accountStatuses = getAccountStatuses(accounts, new Date(), dupes);
       console.log(
-        JSON.stringify({ ...status, accounts: accountStatuses }, null, 2),
+        JSON.stringify(
+          { ...status, ...serviceInfo, accounts: accountStatuses },
+          null,
+          2,
+        ),
       );
       return;
     }
     if (!status.running) {
-      console.log("Daemon is not running");
+      if (svc.installed) {
+        const kind = svc.platform === "darwin" ? "launchd" : "systemd";
+        console.log(
+          `Daemon is not running (system service: installed via ${kind})`,
+        );
+      } else {
+        console.log("Daemon is not running");
+      }
       return;
     }
     console.log(`Daemon is running (PID: ${status.pid})`);
@@ -369,8 +407,53 @@ daemon
     if (status.nextPingIn) {
       console.log(`  Next ping in: ${status.nextPingIn}`);
     }
+    if (svc.installed) {
+      const kind = svc.platform === "darwin" ? "launchd" : "systemd";
+      console.log(`  System service: installed (${kind})`);
+    }
     console.log("");
     printAccountTable();
+  });
+
+daemon
+  .command("install")
+  .description("Install daemon as a system service (launchd/systemd)")
+  .option(
+    "--interval <minutes>",
+    "Ping interval in minutes (default: 300 = 5h quota window)",
+  )
+  .option("-q, --quiet", "Suppress ping output", false)
+  .option("--bell", "Ring terminal bell on ping failure", false)
+  .option("--notify", "Send desktop notification on ping failure", false)
+  .action(async (opts) => {
+    const { installService } = await import("./service.js");
+    const result = await installService({
+      interval: opts.interval,
+      quiet: opts.quiet,
+      bell: opts.bell,
+      notify: opts.notify,
+    });
+    if (!result.success) {
+      console.error(result.error);
+      process.exit(1);
+    }
+    console.log(`Service installed: ${result.servicePath}`);
+    console.log(
+      "The daemon will start automatically on login. Use `daemon uninstall` to remove.",
+    );
+  });
+
+daemon
+  .command("uninstall")
+  .description("Remove daemon system service")
+  .action(async () => {
+    const { uninstallService } = await import("./service.js");
+    const result = await uninstallService();
+    if (!result.success) {
+      console.error(result.error);
+      process.exit(1);
+    }
+    console.log(`Service removed: ${result.servicePath}`);
   });
 
 daemon
@@ -384,6 +467,16 @@ daemon
     if (!intervalMs || intervalMs <= 0) {
       console.error("Invalid --interval-ms");
       process.exit(1);
+    }
+    // Write state if not already present (e.g. launched by launchd/systemd)
+    if (!readDaemonState()) {
+      const { resolveConfigDir } = await import("./paths.js");
+      writeDaemonState({
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        intervalMs,
+        configDir: resolveConfigDir(),
+      });
     }
     await runDaemonWithDefaults(intervalMs, {
       quiet: opts.quiet,

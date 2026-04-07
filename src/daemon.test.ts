@@ -752,6 +752,39 @@ describe("daemon", () => {
       expect(log).toHaveBeenCalledWith("Received SIGINT, shutting down...");
     });
 
+    it("clears stale stop file on startup before entering loop", async () => {
+      // Simulate a leftover stop file from a crashed daemon
+      writeFileSync(daemonStopPath(), "");
+
+      let calls = 0;
+      const log = vi.fn();
+
+      await runDaemon(
+        60000,
+        {},
+        {
+          runPing: vi.fn().mockResolvedValue(0),
+          listAccounts: vi
+            .fn()
+            .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+          sleep: vi.fn().mockResolvedValue(undefined),
+          shouldStop: () => {
+            calls++;
+            return calls > 1;
+          },
+          log,
+          onSignal: vi.fn(),
+          removeSignal: vi.fn(),
+          exit: vi.fn(),
+        },
+      );
+
+      // The daemon should have run normally (the stale stop file was cleared)
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining("Daemon started"),
+      );
+    });
+
     it("cleans up even when daemonLoop throws", async () => {
       const log = vi.fn();
       const removeSignal = vi.fn();

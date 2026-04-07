@@ -12,7 +12,8 @@ describe("generateCompletion", () => {
     expect(script).toContain("suggest");
     expect(script).toContain("cc-ping list");
     expect(script).toContain("daemon");
-    expect(script).toContain("start stop status");
+    expect(script).toContain("start stop status install uninstall");
+    expect(script).toContain("install");
   });
 
   it("generates zsh completion script", () => {
@@ -24,6 +25,8 @@ describe("generateCompletion", () => {
     expect(script).toContain("cc-ping list");
     expect(script).toContain("daemon");
     expect(script).toContain("Start the daemon process");
+    expect(script).toContain("Install as system service");
+    expect(script).toContain("Remove system service");
   });
 
   it("generates fish completion script", () => {
@@ -34,6 +37,8 @@ describe("generateCompletion", () => {
     expect(script).toContain("cc-ping list");
     expect(script).toContain("daemon");
     expect(script).toContain("Start the daemon");
+    expect(script).toContain("Install as system service");
+    expect(script).toContain("Remove system service");
   });
 
   it("throws for unsupported shell", () => {

@@ -402,6 +402,10 @@ export async function runDaemon(
 ): Promise<void> {
   const stopPath = daemonStopPath();
 
+  // Clear stale stop file from a previous crash — without this,
+  // a service-manager restart would immediately exit.
+  if (existsSync(stopPath)) unlinkSync(stopPath);
+
   const cleanup = () => {
     if (existsSync(stopPath)) unlinkSync(stopPath);
     removeDaemonState();
