@@ -1,4 +1,5 @@
 import { ringBell } from "./bell.js";
+import { green, red } from "./color.js";
 import { appendHistoryEntry } from "./history.js";
 import { createLogger } from "./logger.js";
 import { sendNotification } from "./notify.js";
@@ -60,15 +61,13 @@ export async function runPing(
     });
   }
 
-  for (const r of results) {
-    const status = r.success ? "ok" : "FAIL";
+  const total = results.length;
+  for (let idx = 0; idx < results.length; idx++) {
+    const r = results[idx];
+    const status = r.success ? green("ok") : red("FAIL");
     const detail = r.error ? ` (${r.error})` : "";
-    const cr = r.claudeResponse;
-    const costInfo = cr
-      ? `  $${cr.total_cost_usd.toFixed(4)} ${cr.usage.input_tokens + cr.usage.output_tokens} tok`
-      : "";
     logger.log(
-      `  ${r.handle}: ${status} ${r.durationMs}ms${detail}${costInfo}`,
+      `  [${idx + 1}/${total}] ${r.handle}: ${status} ${r.durationMs}ms${detail}`,
     );
     appendHistoryEntry({
       timestamp: new Date().toISOString(),
@@ -79,13 +78,13 @@ export async function runPing(
     });
     if (r.success) {
       let meta: PingMeta | undefined;
-      if (cr) {
+      if (r.claudeResponse) {
         meta = {
-          costUsd: cr.total_cost_usd,
-          inputTokens: cr.usage.input_tokens,
-          outputTokens: cr.usage.output_tokens,
-          model: cr.model,
-          sessionId: cr.session_id,
+          costUsd: r.claudeResponse.total_cost_usd,
+          inputTokens: r.claudeResponse.usage.input_tokens,
+          outputTokens: r.claudeResponse.usage.output_tokens,
+          model: r.claudeResponse.model,
+          sessionId: r.claudeResponse.session_id,
         };
       }
       recordPing(r.handle, new Date(), meta);

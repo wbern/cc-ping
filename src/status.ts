@@ -1,3 +1,4 @@
+import { green, red, yellow } from "./color.js";
 import { listAccounts } from "./config.js";
 import type { DuplicateGroup } from "./identity.js";
 import { findDuplicates } from "./identity.js";
@@ -13,11 +14,22 @@ interface AccountStatus {
   handle: string;
   configDir: string;
   lastPing: string | null;
-  windowStatus: "active" | "expired" | "unknown";
+  windowStatus: "active" | "needs ping" | "unknown";
   timeUntilReset: string | null;
   lastCostUsd: number | null;
   lastTokens: number | null;
   duplicateOf?: string;
+}
+
+function colorizeStatus(windowStatus: AccountStatus["windowStatus"]): string {
+  switch (windowStatus) {
+    case "active":
+      return green(windowStatus);
+    case "needs ping":
+      return red(windowStatus);
+    default:
+      return yellow(windowStatus);
+  }
 }
 
 export function formatStatusLine(status: AccountStatus): string {
@@ -29,14 +41,10 @@ export function formatStatusLine(status: AccountStatus): string {
     status.timeUntilReset !== null
       ? ` (resets in ${status.timeUntilReset})`
       : "";
-  const cost =
-    status.lastCostUsd !== null && status.lastTokens !== null
-      ? `  $${status.lastCostUsd.toFixed(4)} ${status.lastTokens} tok`
-      : "";
   const dup = status.duplicateOf
     ? `  [duplicate of ${status.duplicateOf}]`
     : "";
-  return `  ${status.handle}: ${status.windowStatus}  last ping: ${ping}${reset}${cost}${dup}`;
+  return `  ${status.handle}: ${colorizeStatus(status.windowStatus)}  last ping: ${ping}${reset}${dup}`;
 }
 
 export function getAccountStatuses(
@@ -80,7 +88,7 @@ export function getAccountStatuses(
       handle: account.handle,
       configDir: account.configDir,
       lastPing: lastPing.toISOString(),
-      windowStatus: window ? ("active" as const) : ("expired" as const),
+      windowStatus: window ? ("active" as const) : ("needs ping" as const),
       timeUntilReset: window ? formatTimeRemaining(window.remainingMs) : null,
       lastCostUsd,
       lastTokens,

@@ -75,7 +75,7 @@ describe("getAccountStatuses", () => {
     });
   });
 
-  it("returns expired status when window has passed", () => {
+  it("returns needs-ping status when window has passed", () => {
     const pingTime = new Date("2025-01-01T00:00:00.000Z");
     recordPing("charlie", pingTime);
     const now = new Date("2025-01-01T06:00:00.000Z"); // 6 hours later
@@ -85,7 +85,7 @@ describe("getAccountStatuses", () => {
       handle: "charlie",
       configDir: "/tmp/charlie",
       lastPing: "2025-01-01T00:00:00.000Z",
-      windowStatus: "expired",
+      windowStatus: "needs ping",
       timeUntilReset: null,
       lastCostUsd: null,
       lastTokens: null,
@@ -108,7 +108,7 @@ describe("getAccountStatuses", () => {
     ];
     const statuses = getAccountStatuses(accounts, now);
     expect(statuses[0].windowStatus).toBe("active");
-    expect(statuses[1].windowStatus).toBe("expired");
+    expect(statuses[1].windowStatus).toBe("needs ping");
     expect(statuses[2].windowStatus).toBe("unknown");
   });
 
@@ -171,18 +171,18 @@ describe("formatStatusLine", () => {
     expect(line).toContain("4h 0m");
   });
 
-  it("formats an expired account", () => {
+  it("formats a needs-ping account", () => {
     const line = formatStatusLine({
       handle: "bob",
       configDir: "/tmp/bob",
       lastPing: "2025-01-01T00:00:00.000Z",
-      windowStatus: "expired",
+      windowStatus: "needs ping",
       timeUntilReset: null,
       lastCostUsd: null,
       lastTokens: null,
     });
     expect(line).toContain("bob");
-    expect(line).toContain("expired");
+    expect(line).toContain("needs ping");
     expect(line).not.toContain("resets in");
   });
 
@@ -201,7 +201,7 @@ describe("formatStatusLine", () => {
     expect(line).toContain("never");
   });
 
-  it("includes cost info when available", () => {
+  it("does not include cost info even when available", () => {
     const line = formatStatusLine({
       handle: "alice",
       configDir: "/tmp/alice",
@@ -211,8 +211,8 @@ describe("formatStatusLine", () => {
       lastCostUsd: 0.003,
       lastTokens: 15,
     });
-    expect(line).toContain("$0.0030");
-    expect(line).toContain("15 tok");
+    expect(line).not.toContain("$");
+    expect(line).not.toContain("tok");
   });
 
   it("shows duplicate indicator when duplicateOf is set", () => {

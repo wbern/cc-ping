@@ -90,7 +90,7 @@ Show all accounts with their quota window state — whether they have an active 
 
 ### `cc-ping suggest`
 
-Recommend which account to use next based on quota window state. Prefers accounts whose windows have already expired or are about to.
+Recommend which account to use next based on quota window state. Prefers accounts that need pinging or whose windows are about to reset.
 
 ### `cc-ping next-reset`
 

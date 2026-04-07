@@ -15,6 +15,7 @@ import {
   stopDaemon,
   writeDaemonState,
 } from "./daemon.js";
+import { showDefault } from "./default-command.js";
 import { filterAccounts, filterByGroup } from "./filter-accounts.js";
 import { formatHistoryEntry, readHistory } from "./history.js";
 import { findDuplicates } from "./identity.js";
@@ -42,6 +43,9 @@ const program = new Command()
     if (opts.config) {
       setConfigDir(opts.config);
     }
+  })
+  .action(() => {
+    showDefault();
   });
 
 program

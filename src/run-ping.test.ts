@@ -129,7 +129,7 @@ describe("runPing", () => {
     expect(stderr).toHaveBeenCalledWith("1/1 failed");
   });
 
-  it("logs per-account results when not quiet", async () => {
+  it("logs per-account results with progress counter", async () => {
     mockPingAccounts.mockResolvedValue([
       { handle: "alice", success: true, durationMs: 150 },
       { handle: "bob", success: false, durationMs: 200, error: "timed out" },
@@ -149,12 +149,12 @@ describe("runPing", () => {
     });
 
     const allOutput = stdout.mock.calls.map((c) => c[0]).join("\n");
-    expect(allOutput).toContain("alice: ok");
-    expect(allOutput).toContain("bob: FAIL");
+    expect(allOutput).toContain("[1/2] alice: ok");
+    expect(allOutput).toContain("[2/2] bob: FAIL");
     expect(allOutput).toContain("timed out");
   });
 
-  it("displays cost info when claudeResponse is present", async () => {
+  it("does not display cost info even when claudeResponse is present", async () => {
     mockPingAccounts.mockResolvedValue([
       {
         handle: "alice",
@@ -192,8 +192,8 @@ describe("runPing", () => {
     });
 
     const allOutput = stdout.mock.calls.map((c) => c[0]).join("\n");
-    expect(allOutput).toContain("$0.0030");
-    expect(allOutput).toContain("15 tok");
+    expect(allOutput).not.toContain("$");
+    expect(allOutput).not.toContain("tok");
   });
 
   it("records history entries for all ping results", async () => {
