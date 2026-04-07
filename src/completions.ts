@@ -24,7 +24,7 @@ function bashCompletion(): string {
       fi
       ;;
     add)
-      COMPREPLY=( $(compgen -W "--group" -- "\${cur}") )
+      COMPREPLY=( $(compgen -W "--name --group" -- "\${cur}") )
       ;;
     list|history|status|next-reset|check)
       COMPREPLY=( $(compgen -W "--json" -- "\${cur}") )
@@ -104,7 +104,9 @@ _cc_ping() {
           _arguments '--json[JSON output]'
           ;;
         add)
-          _arguments '--group[Assign group]:group:'
+          _arguments \
+            '--name[Override handle]:name:' \
+            '--group[Assign group]:group:'
           ;;
         daemon)
           local -a subcmds
@@ -173,6 +175,7 @@ complete -c cc-ping -n "__fish_seen_subcommand_from ping" -l stagger -r -d "Dela
 complete -c cc-ping -n "__fish_seen_subcommand_from ping" -a "(cc-ping list 2>/dev/null | string replace -r ' *(.*) ->.*' '$1')"
 
 complete -c cc-ping -n "__fish_seen_subcommand_from list history status next-reset check" -l json -d "JSON output"
+complete -c cc-ping -n "__fish_seen_subcommand_from add" -s n -l name -r -d "Override handle"
 complete -c cc-ping -n "__fish_seen_subcommand_from add" -s g -l group -r -d "Assign group"
 complete -c cc-ping -n "__fish_seen_subcommand_from completions" -a "bash zsh fish"
 

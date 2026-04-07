@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { Command } from "commander";
 import { checkAccounts } from "./check.js";
 import { generateCompletion } from "./completions.js";
@@ -159,10 +160,14 @@ program
 program
   .command("add")
   .description("Add an account manually")
-  .argument("<handle>", "Account handle/name")
   .argument("<config-dir>", "Path to the CLAUDE_CONFIG_DIR for this account")
+  .option(
+    "-n, --name <name>",
+    "Override account handle (default: directory name)",
+  )
   .option("-g, --group <group>", "Assign account to a group")
-  .action((handle, configDir, opts) => {
+  .action((configDir, opts) => {
+    const handle = opts.name || basename(configDir);
     addAccount(handle, configDir, opts.group);
     const groupInfo = opts.group ? ` [${opts.group}]` : "";
     console.log(`Added: ${handle} -> ${configDir}${groupInfo}`);

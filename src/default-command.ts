@@ -11,7 +11,7 @@ export function showDefault(
     log("No accounts configured.");
     log("\nGet started:");
     log("  cc-ping scan        Auto-discover accounts");
-    log("  cc-ping add <h> <d> Add an account manually");
+    log("  cc-ping add <dir>   Add an account manually");
     return;
   }
 
