@@ -49,7 +49,7 @@ describe("showDefault", () => {
     showDefault((msg) => lines.push(msg));
     expect(lines[0]).toBe("No accounts configured.");
     expect(lines.join("\n")).toContain("cc-ping scan");
-    expect(lines.join("\n")).toContain("cc-ping add <dir>");
+    expect(lines.join("\n")).toContain("cc-ping add ~/.claude");
   });
 
   it("shows account statuses and suggests ping when accounts need pinging", () => {
