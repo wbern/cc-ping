@@ -25,12 +25,7 @@ export function showDefault(
   if (needsPing.length > 0) {
     log("");
     log("Suggested next steps:");
-    const handles = needsPing.map((s) => s.handle).join(" ");
-    if (needsPing.length < statuses.length) {
-      log(`  cc-ping ping ${handles}   Ping accounts that need it`);
-    } else {
-      log("  cc-ping ping              Ping all accounts");
-    }
+    log("  cc-ping ping              Ping accounts that need it");
     log("  cc-ping daemon start      Auto-ping on a schedule");
   }
 }

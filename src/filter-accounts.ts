@@ -1,3 +1,4 @@
+import { getWindowReset } from "./state.js";
 import type { AccountConfig } from "./types.js";
 
 export function filterAccounts(
@@ -13,6 +14,13 @@ export function filterAccounts(
 
   const set = new Set(handles);
   return accounts.filter((a) => set.has(a.handle));
+}
+
+export function filterNeedsPing(
+  accounts: AccountConfig[],
+  now: Date = new Date(),
+): AccountConfig[] {
+  return accounts.filter((a) => !getWindowReset(a.handle, now));
 }
 
 export function filterByGroup(

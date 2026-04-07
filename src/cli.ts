@@ -16,7 +16,11 @@ import {
   writeDaemonState,
 } from "./daemon.js";
 import { showDefault } from "./default-command.js";
-import { filterAccounts, filterByGroup } from "./filter-accounts.js";
+import {
+  filterAccounts,
+  filterByGroup,
+  filterNeedsPing,
+} from "./filter-accounts.js";
 import { formatHistoryEntry, readHistory } from "./history.js";
 import { findDuplicates } from "./identity.js";
 import { getNextReset } from "./next-reset.js";
@@ -51,7 +55,10 @@ const program = new Command()
 program
   .command("ping")
   .description("Ping configured accounts to start quota windows")
-  .argument("[handles...]", "Specific account handles to ping (default: all)")
+  .argument(
+    "[handles...]",
+    "Specific handles to ping (default: accounts that need it)",
+  )
   .option("--parallel", "Ping all accounts in parallel", false)
   .option("-q, --quiet", "Suppress all output except errors (for cron)", false)
   .option("--json", "Output results as JSON", false)
@@ -70,10 +77,14 @@ program
       );
       process.exit(1);
     }
-    const targets = filterAccounts(
-      filterByGroup(accounts, opts.group),
-      handles,
-    );
+    const grouped = filterByGroup(accounts, opts.group);
+    const selected =
+      handles.length > 0 ? filterAccounts(grouped, handles) : grouped;
+    const targets = handles.length > 0 ? selected : filterNeedsPing(selected);
+    if (targets.length === 0) {
+      console.log("All accounts have active windows. Nothing to ping.");
+      process.exit(0);
+    }
     const staggerMs = opts.stagger
       ? parseStagger(opts.stagger, targets.length)
       : undefined;
@@ -332,7 +343,7 @@ daemon
     const svc = getServiceStatus();
     if (!svc.installed) {
       console.log(
-        "Hint: won't survive a reboot. Use `daemon install` for a persistent service.",
+        "Hint: won't survive a reboot. Use `cc-ping daemon install` for a persistent service.",
       );
     }
     printAccountTable();
@@ -352,7 +363,7 @@ daemon
     const svc = getServiceStatus();
     if (svc.installed) {
       console.log(
-        "Note: system service is installed. The daemon may restart. Use `daemon uninstall` to fully remove.",
+        "Note: system service is installed. The daemon may restart. Use `cc-ping daemon uninstall` to fully remove.",
       );
     }
   });
@@ -443,7 +454,7 @@ daemon
     }
     console.log(`Service installed: ${result.servicePath}`);
     console.log(
-      "The daemon will start automatically on login. Use `daemon uninstall` to remove.",
+      "The daemon will start automatically on login. Use `cc-ping daemon uninstall` to remove.",
     );
   });
 

@@ -80,7 +80,7 @@ describe("showDefault", () => {
     expect(output).not.toContain("Suggested next steps");
   });
 
-  it("suggests pinging specific handles when only some need pinging", () => {
+  it("suggests ping when only some need pinging", () => {
     vi.mocked(listAccounts).mockReturnValue([
       { handle: "alice", configDir: "/tmp/alice" },
       { handle: "bob", configDir: "/tmp/bob" },
@@ -90,8 +90,8 @@ describe("showDefault", () => {
     const lines: string[] = [];
     showDefault((msg) => lines.push(msg), now);
     const output = lines.join("\n");
-    expect(output).toContain("cc-ping ping bob");
-    expect(output).not.toContain("Ping all accounts");
+    expect(output).toContain("cc-ping ping");
+    expect(output).toContain("Ping accounts that need it");
   });
 
   it("uses console.log by default", () => {
