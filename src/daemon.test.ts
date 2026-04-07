@@ -411,6 +411,21 @@ describe("daemon", () => {
       expect(result.error).toBe("Failed to spawn daemon process");
       expect(mockCloseSync).toHaveBeenCalledWith(3);
     });
+
+    it("rejects second start when PID file points to a live process", () => {
+      writeDaemonState({
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        intervalMs: 300000,
+        configDir,
+      });
+
+      const result = startDaemon({});
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Daemon is already running");
+      expect(result.pid).toBe(process.pid);
+    });
   });
 
   describe("stopDaemon", () => {
