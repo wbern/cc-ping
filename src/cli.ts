@@ -7,6 +7,12 @@ import {
   removeAccount,
   saveConfig,
 } from "./config.js";
+import {
+  getDaemonStatus,
+  runDaemonWithDefaults,
+  startDaemon,
+  stopDaemon,
+} from "./daemon.js";
 import { filterAccounts, filterByGroup } from "./filter-accounts.js";
 import { formatHistoryEntry, readHistory } from "./history.js";
 import { findDuplicates } from "./identity.js";
@@ -275,6 +281,87 @@ program
   .argument("<shell>", "Shell type: bash, zsh, or fish")
   .action((shell: string) => {
     console.log(generateCompletion(shell));
+  });
+
+const daemon = program
+  .command("daemon")
+  .description("Run auto-ping on a schedule");
+
+daemon
+  .command("start")
+  .description("Start the daemon process")
+  .option(
+    "--interval <minutes>",
+    "Ping interval in minutes (default: 300 = 5h quota window)",
+  )
+  .option("-q, --quiet", "Suppress ping output", false)
+  .option("--bell", "Ring terminal bell on ping failure", false)
+  .option("--notify", "Send desktop notification on ping failure", false)
+  .action((opts) => {
+    const result = startDaemon({
+      interval: opts.interval,
+      quiet: opts.quiet,
+      bell: opts.bell,
+      notify: opts.notify,
+    });
+    if (!result.success) {
+      console.error(result.error);
+      process.exit(1);
+    }
+    console.log(`Daemon started (PID: ${result.pid})`);
+  });
+
+daemon
+  .command("stop")
+  .description("Stop the daemon process")
+  .action(async () => {
+    const result = await stopDaemon();
+    if (!result.success) {
+      console.error(result.error);
+      process.exit(1);
+    }
+    console.log(`Daemon stopped (PID: ${result.pid})`);
+  });
+
+daemon
+  .command("status")
+  .description("Show daemon status")
+  .option("--json", "Output as JSON", false)
+  .action((opts) => {
+    const status = getDaemonStatus();
+    if (opts.json) {
+      console.log(JSON.stringify(status, null, 2));
+      return;
+    }
+    if (!status.running) {
+      console.log("Daemon is not running");
+      return;
+    }
+    console.log(`Daemon is running (PID: ${status.pid})`);
+    console.log(`  Started: ${status.startedAt}`);
+    console.log(
+      `  Interval: ${Math.round((status.intervalMs ?? 0) / 60_000)}m`,
+    );
+    console.log(`  Uptime: ${status.uptime}`);
+  });
+
+daemon
+  .command("_run", { hidden: true })
+  .option("--interval-ms <ms>", "Ping interval in milliseconds")
+  .option("-q, --quiet", "Suppress ping output", false)
+  .option("--bell", "Ring terminal bell on ping failure", false)
+  .option("--notify", "Send desktop notification on ping failure", false)
+  .action(async (opts) => {
+    const intervalMs = Number(opts.intervalMs);
+    if (!intervalMs || intervalMs <= 0) {
+      console.error("Invalid --interval-ms");
+      process.exit(1);
+    }
+    await runDaemonWithDefaults(intervalMs, {
+      quiet: opts.quiet,
+      bell: opts.bell,
+      notify: opts.notify,
+    });
   });
 
 program.parse();

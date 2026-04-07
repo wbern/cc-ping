@@ -1,5 +1,5 @@
 const COMMANDS =
-  "ping scan add remove list status next-reset history suggest check completions";
+  "ping scan add remove list status next-reset history suggest check completions daemon";
 
 function bashCompletion(): string {
   return `_cc_ping() {
@@ -32,6 +32,15 @@ function bashCompletion(): string {
     completions)
       COMPREPLY=( $(compgen -W "bash zsh fish" -- "\${cur}") )
       ;;
+    daemon)
+      if [[ \${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=( $(compgen -W "start stop status" -- "\${cur}") )
+      elif [[ "\${COMP_WORDS[2]}" == "start" && "\${cur}" == -* ]]; then
+        COMPREPLY=( $(compgen -W "--interval --quiet --bell --notify" -- "\${cur}") )
+      elif [[ "\${COMP_WORDS[2]}" == "status" && "\${cur}" == -* ]]; then
+        COMPREPLY=( $(compgen -W "--json" -- "\${cur}") )
+      fi
+      ;;
   esac
   return 0
 }
@@ -56,6 +65,7 @@ _cc_ping() {
     'suggest:Suggest next account'
     'check:Verify account health'
     'completions:Generate shell completions'
+    'daemon:Run auto-ping on a schedule'
   )
 
   _arguments -C \\
@@ -93,6 +103,34 @@ _cc_ping() {
         add)
           _arguments '--group[Assign group]:group:'
           ;;
+        daemon)
+          local -a subcmds
+          subcmds=(
+            'start:Start the daemon process'
+            'stop:Stop the daemon process'
+            'status:Show daemon status'
+          )
+          _arguments '1:subcommand:->subcmd' '*::arg:->subargs'
+          case $state in
+            subcmd)
+              _describe 'subcommand' subcmds
+              ;;
+            subargs)
+              case $words[1] in
+                start)
+                  _arguments \\
+                    '--interval[Ping interval in minutes]:minutes:' \\
+                    '--quiet[Suppress ping output]' \\
+                    '--bell[Ring bell on failure]' \\
+                    '--notify[Send notification on failure]'
+                  ;;
+                status)
+                  _arguments '--json[JSON output]'
+                  ;;
+              esac
+              ;;
+          esac
+          ;;
       esac
       ;;
   esac
@@ -118,6 +156,7 @@ complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a history -d
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a suggest -d "Suggest next account"
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a check -d "Verify account health"
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a completions -d "Generate shell completions"
+complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a daemon -d "Run auto-ping on a schedule"
 
 complete -c cc-ping -n "__fish_seen_subcommand_from ping" -l parallel -d "Ping in parallel"
 complete -c cc-ping -n "__fish_seen_subcommand_from ping" -s q -l quiet -d "Suppress output"
@@ -130,6 +169,15 @@ complete -c cc-ping -n "__fish_seen_subcommand_from ping" -a "(cc-ping list 2>/d
 complete -c cc-ping -n "__fish_seen_subcommand_from list history status next-reset check" -l json -d "JSON output"
 complete -c cc-ping -n "__fish_seen_subcommand_from add" -s g -l group -r -d "Assign group"
 complete -c cc-ping -n "__fish_seen_subcommand_from completions" -a "bash zsh fish"
+
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from start stop status" -a start -d "Start the daemon"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from start stop status" -a stop -d "Stop the daemon"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from start stop status" -a status -d "Show daemon status"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start" -l interval -r -d "Ping interval in minutes"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start" -s q -l quiet -d "Suppress output"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start" -l bell -d "Ring bell on failure"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start" -l notify -d "Send notification on failure"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from status" -l json -d "JSON output"
 `;
 }
 

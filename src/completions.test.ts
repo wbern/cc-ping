@@ -11,6 +11,8 @@ describe("generateCompletion", () => {
     expect(script).toContain("scan");
     expect(script).toContain("suggest");
     expect(script).toContain("cc-ping list");
+    expect(script).toContain("daemon");
+    expect(script).toContain("start stop status");
   });
 
   it("generates zsh completion script", () => {
@@ -20,6 +22,8 @@ describe("generateCompletion", () => {
     expect(script).toContain("ping");
     expect(script).toContain("scan");
     expect(script).toContain("cc-ping list");
+    expect(script).toContain("daemon");
+    expect(script).toContain("Start the daemon process");
   });
 
   it("generates fish completion script", () => {
@@ -28,6 +32,8 @@ describe("generateCompletion", () => {
     expect(script).toContain("ping");
     expect(script).toContain("scan");
     expect(script).toContain("cc-ping list");
+    expect(script).toContain("daemon");
+    expect(script).toContain("Start the daemon");
   });
 
   it("throws for unsupported shell", () => {

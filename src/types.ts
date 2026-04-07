@@ -52,3 +52,10 @@ export interface PingState {
   lastPing: Record<string, string>; // handle -> ISO 8601 timestamp
   lastPingMeta?: Record<string, PingMeta>;
 }
+
+export interface DaemonState {
+  pid: number;
+  startedAt: string; // ISO 8601
+  intervalMs: number;
+  configDir: string;
+}
