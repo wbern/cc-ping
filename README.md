@@ -148,9 +148,10 @@ cc-ping daemon stop                    # graceful shutdown
 The daemon is smart about what it pings:
 
 - **Skips active windows** — accounts with a quota window still running are skipped to avoid wasting pings
+- **Retries failures** — if any accounts fail to ping, the daemon retries only the failed ones before sleeping
 - **Detects system sleep** — if the machine wakes from sleep and a ping cycle is overdue, the daemon notices and factors the delay into notifications
 - **Singleton enforcement** — only one daemon runs at a time, verified by PID and process name
-- **Graceful shutdown** — `daemon stop` writes a sentinel file and waits for a clean exit before force-killing
+- **Graceful shutdown** — `daemon stop` writes a sentinel file and waits up to 60s for a clean exit before force-killing
 
 Logs are written to `~/.config/cc-ping/daemon.log`.
 
@@ -216,7 +217,7 @@ Key design choices:
 - **Arithmetic prompts** — random math questions minimize token usage (~150 input tokens, ~10 output). Templates and operands are randomized to avoid cache hits across pings.
 - **Tools disabled** — `--tools ""` prevents the model from doing anything beyond answering the question.
 - **Single turn** — `--max-turns 1` ensures one request-response cycle, no follow-ups.
-- **30s timeout** — pings that take longer are killed.
+- **30s timeout with hard kill** — pings that take longer are sent SIGKILL. A backstop timer force-resolves the promise even if the child process doesn't exit cleanly.
 - **Cost tracking** — each ping records its USD cost and token usage so you can audit spend.
 
 After a successful ping, the account's last-ping timestamp is saved to `~/.config/cc-ping/state.json`. The 5-hour quota window is calculated from this timestamp — commands like `status`, `suggest`, and the daemon all use it to determine window state.
