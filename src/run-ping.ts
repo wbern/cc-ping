@@ -20,10 +20,15 @@ interface RunPingOptions {
   _sleep?: (ms: number) => Promise<void>;
 }
 
+interface RunPingResult {
+  exitCode: number;
+  failedHandles: string[];
+}
+
 export async function runPing(
   accounts: AccountConfig[],
   options: RunPingOptions,
-): Promise<number> {
+): Promise<RunPingResult> {
   const stdout = options.stdout ?? console.log;
   const logger = createLogger({
     quiet: options.quiet || options.json === true,
@@ -120,6 +125,8 @@ export async function runPing(
     }
   }
 
+  const failedHandles = results.filter((r) => !r.success).map((r) => r.handle);
+
   if (options.json) {
     const jsonResults = results.map((r) => ({
       handle: r.handle,
@@ -128,12 +135,12 @@ export async function runPing(
       error: r.error,
     }));
     stdout(JSON.stringify(jsonResults, null, 2));
-    return failed > 0 ? 1 : 0;
+    return { exitCode: failed > 0 ? 1 : 0, failedHandles };
   }
 
   if (failed > 0) {
     logger.error(`${failed}/${results.length} failed`);
-    return 1;
+    return { exitCode: 1, failedHandles };
   }
 
   logger.log(`\nAll ${results.length} accounts pinged successfully`);
@@ -147,5 +154,5 @@ export async function runPing(
     }
   }
 
-  return 0;
+  return { exitCode: 0, failedHandles: [] };
 }

@@ -14,10 +14,15 @@ export function formatExecError(error: Error): string {
   return msg;
 }
 
+const PING_TIMEOUT_MS = 30_000;
+const KILL_GRACE_MS = 5_000;
+
 function pingOne(account: AccountConfig): Promise<PingResult> {
   const start = Date.now();
 
   return new Promise((resolve) => {
+    let resolved = false;
+
     const child = execFile(
       "claude",
       [
@@ -32,9 +37,15 @@ function pingOne(account: AccountConfig): Promise<PingResult> {
       ],
       {
         env: { ...process.env, CLAUDE_CONFIG_DIR: account.configDir },
-        timeout: 30_000,
+        timeout: PING_TIMEOUT_MS,
+        killSignal: "SIGKILL",
       },
       (error, stdout) => {
+        /* c8 ignore next -- guard against hard-kill race */
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(hardKillTimer);
+
         const claudeResponse = parseClaudeResponse(stdout) ?? undefined;
         const isError = claudeResponse?.is_error === true;
 
@@ -59,6 +70,26 @@ function pingOne(account: AccountConfig): Promise<PingResult> {
         });
       },
     );
+
+    // Hard kill: if callback hasn't fired after timeout + grace, force-resolve
+    /* c8 ignore start -- race-condition guard + defensive kill */
+    const hardKillTimer = setTimeout(() => {
+      if (resolved) return;
+      resolved = true;
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // Process may have already exited
+      }
+      /* c8 ignore stop */
+      resolve({
+        handle: account.handle,
+        success: false,
+        durationMs: Date.now() - start,
+        error: "timed out",
+      });
+    }, PING_TIMEOUT_MS + KILL_GRACE_MS);
+    hardKillTimer.unref();
 
     // Ensure child doesn't hang
     child.stdin?.end();

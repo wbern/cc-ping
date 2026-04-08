@@ -89,7 +89,7 @@ program
     const staggerMs = opts.stagger
       ? parseStagger(opts.stagger, targets.length)
       : undefined;
-    const exitCode = await runPing(targets, {
+    const { exitCode } = await runPing(targets, {
       parallel: opts.parallel,
       quiet: opts.quiet,
       json: opts.json,

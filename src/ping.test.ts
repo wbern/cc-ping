@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { formatExecError } from "./ping.js";
 
 vi.mock("node:child_process", () => ({
@@ -177,6 +177,40 @@ describe("pingAccounts", () => {
     ]);
     expect(results[0].success).toBe(false);
     expect(results[0].error).toBe("error_max_turns");
+  });
+});
+
+describe("pingOne timeout enforcement", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("resolves within timeout even when child process hangs", async () => {
+    vi.useFakeTimers();
+
+    // Simulate a child process where execFile callback never fires
+    // (what happens when the process ignores SIGTERM and doesn't exit)
+    const killFn = vi.fn();
+    mockExecFile.mockImplementation(
+      (_cmd: unknown, _args: unknown, _opts: unknown, _cb: unknown) => {
+        return {
+          stdin: { end: vi.fn() },
+          pid: 99999,
+          kill: killFn,
+        } as unknown as ReturnType<typeof execFile>;
+      },
+    );
+
+    const promise = pingAccounts([{ handle: "hung", configDir: "/tmp/hung" }]);
+
+    // Advance past the hard kill timeout
+    await vi.advanceTimersByTimeAsync(36_000);
+
+    const results = await promise;
+    expect(results).toHaveLength(1);
+    expect(results[0].success).toBe(false);
+    expect(results[0].error).toBe("timed out");
+    expect(killFn).toHaveBeenCalledWith("SIGKILL");
   });
 });
 

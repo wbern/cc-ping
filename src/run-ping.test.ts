@@ -59,7 +59,7 @@ describe("runPing", () => {
     const stderr = vi.fn();
     const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
 
-    const exitCode = await runPing(accounts, {
+    const { exitCode } = await runPing(accounts, {
       parallel: false,
       quiet: false,
       stdout,
@@ -81,7 +81,7 @@ describe("runPing", () => {
       { handle: "bob", configDir: "/tmp/bob" },
     ];
 
-    const exitCode = await runPing(accounts, {
+    const { exitCode } = await runPing(accounts, {
       parallel: false,
       quiet: false,
       stdout,
@@ -117,7 +117,7 @@ describe("runPing", () => {
     const stderr = vi.fn();
     const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
 
-    const exitCode = await runPing(accounts, {
+    const { exitCode } = await runPing(accounts, {
       parallel: false,
       quiet: true,
       stdout,
@@ -234,7 +234,7 @@ describe("runPing", () => {
       { handle: "bob", configDir: "/tmp/bob" },
     ];
 
-    const exitCode = await runPing(accounts, {
+    const { exitCode } = await runPing(accounts, {
       parallel: false,
       quiet: false,
       json: true,
@@ -273,7 +273,7 @@ describe("runPing", () => {
     const stdout = vi.fn();
     const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
 
-    const exitCode = await runPing(accounts, {
+    const { exitCode } = await runPing(accounts, {
       parallel: false,
       quiet: false,
       json: true,

@@ -16,7 +16,7 @@ import type { AccountConfig, DaemonState } from "./types.js";
 // --- Constants ---
 
 const GRACEFUL_POLL_MS = 500;
-const GRACEFUL_POLL_ATTEMPTS = 20; // 20 × 500ms = 10s
+const GRACEFUL_POLL_ATTEMPTS = 120; // 120 × 500ms = 60s
 const POST_KILL_DELAY_MS = 1000;
 
 // --- File path helpers ---
@@ -168,7 +168,7 @@ interface DaemonLoopDeps {
       notify?: boolean;
       wakeDelayMs?: number;
     },
-  ) => Promise<number>;
+  ) => Promise<{ failedHandles: string[] }>;
   listAccounts: () => AccountConfig[];
   sleep: (ms: number) => Promise<void>;
   shouldStop: () => boolean;
@@ -204,13 +204,26 @@ export async function daemonLoop(
       deps.log(
         `[${new Date().toISOString()}] Pinging ${accounts.length} account(s)...`,
       );
-      await deps.runPing(accounts, {
+      const pingOpts = {
         parallel: false,
         quiet: options.quiet ?? true,
         bell: options.bell,
         notify: options.notify,
         wakeDelayMs,
-      });
+      };
+      const { failedHandles } = await deps.runPing(accounts, pingOpts);
+      if (failedHandles.length > 0 && !deps.shouldStop()) {
+        const retryAccounts = accounts.filter((a) =>
+          failedHandles.includes(a.handle),
+        );
+        if (retryAccounts.length > 0) {
+          deps.log(`Retrying ${retryAccounts.length} account(s)...`);
+          const retry = await deps.runPing(retryAccounts, pingOpts);
+          if (retry.failedHandles.length > 0) {
+            deps.log(`Retry failed for: ${retry.failedHandles.join(", ")}`);
+          }
+        }
+      }
       deps.updateState?.({ lastPingAt: new Date().toISOString() });
     }
 

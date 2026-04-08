@@ -246,7 +246,7 @@ describe("daemon", () => {
     it("pings accounts and stops when shouldStop returns true", async () => {
       let calls = 0;
       const deps = {
-        runPing: vi.fn().mockResolvedValue(0),
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
         listAccounts: vi
           .fn()
           .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
@@ -267,7 +267,7 @@ describe("daemon", () => {
     it("passes options to runPing", async () => {
       let calls = 0;
       const deps = {
-        runPing: vi.fn().mockResolvedValue(0),
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
         listAccounts: vi
           .fn()
           .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
@@ -290,7 +290,7 @@ describe("daemon", () => {
     it("sleeps for interval between pings", async () => {
       let calls = 0;
       const deps = {
-        runPing: vi.fn().mockResolvedValue(0),
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
         listAccounts: vi
           .fn()
           .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
@@ -310,7 +310,7 @@ describe("daemon", () => {
     it("logs message when no accounts configured", async () => {
       let calls = 0;
       const deps = {
-        runPing: vi.fn().mockResolvedValue(0),
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
         listAccounts: vi.fn().mockReturnValue([]),
         sleep: vi.fn().mockResolvedValue(undefined),
         shouldStop: vi.fn(() => {
@@ -333,7 +333,7 @@ describe("daemon", () => {
       const deps = {
         runPing: vi.fn().mockImplementation(async () => {
           calls++;
-          return 0;
+          return { failedHandles: [] };
         }),
         listAccounts: vi
           .fn()
@@ -352,7 +352,7 @@ describe("daemon", () => {
       let calls = 0;
       const updateState = vi.fn();
       const deps = {
-        runPing: vi.fn().mockResolvedValue(0),
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
         listAccounts: vi
           .fn()
           .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
@@ -376,7 +376,7 @@ describe("daemon", () => {
     it("skips accounts whose quota window is still active", async () => {
       let calls = 0;
       const deps = {
-        runPing: vi.fn().mockResolvedValue(0),
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
         listAccounts: vi.fn().mockReturnValue([
           { handle: "alice", configDir: "/tmp/alice" },
           { handle: "bob", configDir: "/tmp/bob" },
@@ -401,6 +401,84 @@ describe("daemon", () => {
       );
     });
 
+    it("retries only failed accounts before sleeping", async () => {
+      let loopCalls = 0;
+      const deps = {
+        runPing: vi
+          .fn()
+          .mockResolvedValueOnce({ failedHandles: ["alice"] })
+          .mockResolvedValueOnce({ failedHandles: [] }),
+        listAccounts: vi.fn().mockReturnValue([
+          { handle: "alice", configDir: "/tmp/alice" },
+          { handle: "bob", configDir: "/tmp/bob" },
+        ]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          loopCalls++;
+          return loopCalls > 2;
+        }),
+        log: vi.fn(),
+      };
+
+      await daemonLoop(60000, {}, deps);
+
+      expect(deps.runPing).toHaveBeenCalledTimes(2);
+      // First call: all accounts
+      expect(deps.runPing.mock.calls[0][0]).toEqual([
+        { handle: "alice", configDir: "/tmp/alice" },
+        { handle: "bob", configDir: "/tmp/bob" },
+      ]);
+      // Retry: only the failed account
+      expect(deps.runPing.mock.calls[1][0]).toEqual([
+        { handle: "alice", configDir: "/tmp/alice" },
+      ]);
+    });
+
+    it("logs failed handles when retry also fails", async () => {
+      let loopCalls = 0;
+      const deps = {
+        runPing: vi
+          .fn()
+          .mockResolvedValueOnce({ failedHandles: ["alice"] })
+          .mockResolvedValueOnce({ failedHandles: ["alice"] }),
+        listAccounts: vi.fn().mockReturnValue([
+          { handle: "alice", configDir: "/tmp/alice" },
+          { handle: "bob", configDir: "/tmp/bob" },
+        ]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          loopCalls++;
+          return loopCalls > 2;
+        }),
+        log: vi.fn(),
+      };
+
+      await daemonLoop(60000, {}, deps);
+
+      expect(deps.log).toHaveBeenCalledWith("Retry failed for: alice");
+    });
+
+    it("skips retry when shouldStop becomes true after failed ping", async () => {
+      let pingCalls = 0;
+      const deps = {
+        runPing: vi.fn().mockImplementation(async () => {
+          pingCalls++;
+          return { failedHandles: ["alice"] };
+        }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => pingCalls >= 1),
+        log: vi.fn(),
+      };
+
+      await daemonLoop(60000, {}, deps);
+
+      expect(deps.runPing).toHaveBeenCalledTimes(1);
+      expect(deps.sleep).not.toHaveBeenCalled();
+    });
+
     it("passes wakeDelayMs to runPing when sleep overshoots by more than 60s", async () => {
       let stopCalls = 0;
       const now = vi.spyOn(Date, "now");
@@ -408,7 +486,7 @@ describe("daemon", () => {
       now.mockImplementation(() => clock);
 
       const deps = {
-        runPing: vi.fn().mockResolvedValue(0),
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
         listAccounts: vi
           .fn()
           .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
@@ -442,7 +520,7 @@ describe("daemon", () => {
       now.mockImplementation(() => clock);
 
       const deps = {
-        runPing: vi.fn().mockResolvedValue(0),
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
         listAccounts: vi
           .fn()
           .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
@@ -468,7 +546,7 @@ describe("daemon", () => {
     it("logs waiting message when all accounts have active windows", async () => {
       let calls = 0;
       const deps = {
-        runPing: vi.fn().mockResolvedValue(0),
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
         listAccounts: vi
           .fn()
           .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
@@ -681,7 +759,7 @@ describe("daemon", () => {
         60000,
         { quiet: true },
         {
-          runPing: vi.fn().mockResolvedValue(0),
+          runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
           listAccounts: vi
             .fn()
             .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
@@ -724,7 +802,7 @@ describe("daemon", () => {
         60000,
         {},
         {
-          runPing: vi.fn().mockResolvedValue(0),
+          runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
           listAccounts: vi.fn().mockReturnValue([]),
           sleep: vi.fn().mockResolvedValue(undefined),
           shouldStop: () => {
@@ -763,7 +841,7 @@ describe("daemon", () => {
         60000,
         {},
         {
-          runPing: vi.fn().mockResolvedValue(0),
+          runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
           listAccounts: vi
             .fn()
             .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
