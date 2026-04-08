@@ -37,3 +37,13 @@ If knip or coverage fails, the commit is rejected. Fix the issue and create a ne
 - Retries only failed accounts once before sleeping
 - Detects system sleep via timer overshoot (>60s late)
 - Graceful stop: sentinel file polled every 500ms for up to 60s, then SIGTERM
+
+## Smart scheduling (wbern/cc-ping#31)
+
+Next major feature. The daemon should analyze user activity patterns from local Claude Code files and time pings so the 5-hour quota window resets during peak usage.
+
+- **Data source**: `~/.claude-accounts/<handle>/history.jsonl` — every prompt with epoch-ms timestamps
+- **Algorithm**: Histogram bin by hour-of-day (last 14 days), find active window, compute midpoint, schedule ping at `midpoint - 5h`
+- **Defer zone**: The 5h window before optimal ping time. Fixed-interval pings landing in this zone are deferred to the optimal time. Pings outside the zone proceed normally (continuous coverage for edge cases).
+- **Fallback**: <7 days of data or flat histogram → use fixed interval, no deferral
+- See issue #31 for full scenario list and implementation sketch
