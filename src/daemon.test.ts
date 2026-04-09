@@ -930,6 +930,7 @@ describe("daemon", () => {
         removeStopFile,
         sleep: vi.fn().mockResolvedValue(undefined),
         kill: vi.fn(),
+        log: vi.fn(),
       });
 
       expect(result.success).toBe(true);
