@@ -15,19 +15,26 @@ export function findOptimalPingHour(histogram: number[]): number {
   const total = histogram.reduce((sum, v) => sum + v, 0);
   if (total === 0) return -1;
 
-  // Circular mean handles midnight-spanning activity correctly
-  const HOUR_TO_RAD = (2 * Math.PI) / 24;
-  let sinSum = 0;
-  let cosSum = 0;
+  // Slide a 5-hour window across the 24-hour histogram to find the
+  // start hour whose window captures the most activity
+  let bestStart = 0;
+  let bestSum = 0;
   for (let h = 0; h < 24; h++) {
-    const angle = h * HOUR_TO_RAD;
-    sinSum += histogram[h] * Math.sin(angle);
-    cosSum += histogram[h] * Math.cos(angle);
+    let windowSum = 0;
+    for (let offset = 0; offset < QUOTA_WINDOW_HOURS; offset++) {
+      windowSum += histogram[(h + offset) % 24];
+    }
+    if (windowSum > bestSum) {
+      bestSum = windowSum;
+      bestStart = h;
+    }
   }
-  const meanAngle = Math.atan2(sinSum, cosSum);
-  const midpoint = Math.round((meanAngle / HOUR_TO_RAD + 24) % 24);
 
-  // Optimal ping = midpoint - 5h (so window expires at midpoint)
+  // Return the hour to ping such that the window expires at the midpoint
+  // of the densest period. The next ping then covers the peak, and the
+  // defer zone falls in pre-activity hours rather than overlapping with
+  // the start of the user's workday.
+  const midpoint = (bestStart + Math.floor(QUOTA_WINDOW_HOURS / 2)) % 24;
   return (midpoint - QUOTA_WINDOW_HOURS + 24) % 24;
 }
 

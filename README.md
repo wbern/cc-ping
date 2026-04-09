@@ -192,8 +192,8 @@ Smart scheduling -- ping timed so window expires at peak:
 
 1. Reads `<configDir>/history.jsonl` from each account's config directory (Claude Code's prompt timestamps)
 2. Builds an hour-of-day histogram from the last 14 days
-3. Finds the weighted midpoint of your activity
-4. Schedules pings at `midpoint - 5h` so the window expires at your peak
+3. Slides a 5-hour window across the histogram to find the densest period
+4. Schedules pings so the window expires at the midpoint of peak activity
 
 **Defer zone:** When smart scheduling is active, pings that would fire in the 5 hours before the optimal time are deferred. Pings outside this zone proceed normally for continuous coverage.
 
