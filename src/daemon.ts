@@ -519,6 +519,7 @@ interface RunDaemonDeps extends DaemonLoopDeps {
   onSignal: (signal: string, handler: () => void) => void;
   removeSignal: (signal: string, handler: () => void) => void;
   exit: (code: number) => void;
+  restart?: () => void;
 }
 
 export async function runDaemon(
@@ -566,7 +567,15 @@ export async function runDaemon(
   }
 
   if (exitReason === "upgrade") {
-    deps.exit(75); // EX_TEMPFAIL — triggers service manager restart
+    if (deps.restart) {
+      try {
+        deps.restart();
+      } catch {
+        deps.exit(75);
+      }
+    } else {
+      deps.exit(75); // EX_TEMPFAIL — triggers service manager restart
+    }
   }
 }
 
@@ -639,6 +648,22 @@ export async function runDaemonWithDefaults(
     onSignal: (signal, handler) => process.on(signal, handler),
     removeSignal: (signal, handler) => process.removeListener(signal, handler),
     exit: (code) => process.exit(code),
+    restart: () => {
+      console.log("Restarting daemon with updated binary...");
+      const result = startDaemon({
+        interval: `${intervalMs / 60_000}m`,
+        quiet: options.quiet,
+        bell: options.bell,
+        notify: options.notify,
+        smartSchedule: options.smartSchedule,
+      });
+      if (result.success) {
+        console.log(`Daemon restarted (PID: ${result.pid})`);
+      } else {
+        console.log(`Failed to restart: ${result.error}`);
+        process.exit(75);
+      }
+    },
   });
 }
 /* c8 ignore stop */

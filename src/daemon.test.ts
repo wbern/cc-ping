@@ -1207,6 +1207,64 @@ describe("daemon", () => {
       expect(removeSignal).toHaveBeenCalledTimes(2);
     });
 
+    it("calls restart dep on upgrade instead of exit(75)", async () => {
+      const log = vi.fn();
+      const exit = vi.fn();
+      const restart = vi.fn();
+
+      await runDaemon(
+        60000,
+        {},
+        {
+          runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+          listAccounts: vi
+            .fn()
+            .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+          sleep: vi.fn().mockResolvedValue(undefined),
+          shouldStop: () => false,
+          log,
+          onSignal: vi.fn(),
+          removeSignal: vi.fn(),
+          exit,
+          hasUpgraded: vi.fn().mockReturnValue(true),
+          restart,
+        },
+      );
+
+      expect(restart).toHaveBeenCalledOnce();
+      expect(exit).not.toHaveBeenCalled();
+    });
+
+    it("falls back to exit(75) when restart throws", async () => {
+      const log = vi.fn();
+      const exit = vi.fn();
+      const restart = vi.fn(() => {
+        throw new Error("spawn failed");
+      });
+
+      await runDaemon(
+        60000,
+        {},
+        {
+          runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+          listAccounts: vi
+            .fn()
+            .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+          sleep: vi.fn().mockResolvedValue(undefined),
+          shouldStop: () => false,
+          log,
+          onSignal: vi.fn(),
+          removeSignal: vi.fn(),
+          exit,
+          hasUpgraded: vi.fn().mockReturnValue(true),
+          restart,
+        },
+      );
+
+      expect(restart).toHaveBeenCalledOnce();
+      expect(exit).toHaveBeenCalledWith(75);
+    });
+
     it("cleans up even when daemonLoop throws", async () => {
       const log = vi.fn();
       const removeSignal = vi.fn();
