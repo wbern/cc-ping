@@ -5,6 +5,10 @@
 [![CI](https://github.com/wbern/cc-ping/actions/workflows/ci.yml/badge.svg)](https://github.com/wbern/cc-ping/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+<p align="center">
+  <img src="docs/daemon-status.png" alt="cc-ping daemon status" width="520" />
+</p>
+
 **Ping Claude Code sessions to trigger quota windows early across multiple accounts.**
 
 Claude Code has a 5-hour quota window that starts on your first message. If you rotate between accounts, your idle accounts sit there with full quota doing nothing. cc-ping pings them so their windows start ticking — when you need them, they've already reset.

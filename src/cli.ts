@@ -61,7 +61,6 @@ const program = new Command()
     "--config <path>",
     "Path to config directory (default: ~/.config/cc-ping, env: CC_PING_CONFIG)",
   )
-  .option("--censor", "Mask account handles in output (for screenshots)")
   .hook("preAction", (thisCommand) => {
     const opts = thisCommand.opts();
     if (opts.config) {
@@ -69,10 +68,7 @@ const program = new Command()
     }
   })
   .action(() => {
-    const opts = program.opts();
-    showDefault(console.log, new Date(), getDeferredHandles(), {
-      censor: opts.censor,
-    });
+    showDefault(console.log, new Date(), getDeferredHandles());
   });
 
 program
@@ -233,6 +229,7 @@ program
   .command("status")
   .description("Show status of all accounts with window information")
   .option("--json", "Output as JSON", false)
+  .option("--censor", "Mask account handles in output (for screenshots)")
   .action((opts) => {
     const deferred = getDeferredHandles();
     if (opts.json) {
@@ -248,7 +245,7 @@ program
       return;
     }
     printAccountTable(console.log, new Date(), deferred, {
-      censor: program.opts().censor,
+      censor: opts.censor,
     });
   });
 
@@ -368,6 +365,7 @@ daemon
     "--smart-schedule <on|off>",
     "Time pings based on usage patterns (default: on)",
   )
+  .option("--censor", "Mask account handles in output (for screenshots)")
   .action(async (opts) => {
     let smartSchedule: boolean | undefined;
     if (opts.smartSchedule !== undefined) {
@@ -394,7 +392,7 @@ daemon
       );
     }
     printAccountTable(console.log, new Date(), getDeferredHandles(), {
-      censor: program.opts().censor,
+      censor: opts.censor,
     });
   });
 
@@ -421,6 +419,7 @@ daemon
   .command("status")
   .description("Show daemon status")
   .option("--json", "Output as JSON", false)
+  .option("--censor", "Mask account handles in output (for screenshots)")
   .action(async (opts) => {
     const { getServiceStatus } = await import("./service.js");
     const svc = getServiceStatus();
@@ -498,7 +497,7 @@ daemon
     }
     console.log("");
     printAccountTable(console.log, new Date(), getDeferredHandles(), {
-      censor: program.opts().censor,
+      censor: opts.censor,
     });
   });
 
