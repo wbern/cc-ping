@@ -5,7 +5,7 @@ import { formatStatusLine, getAccountStatuses } from "./status.js";
 export function showDefault(
   log: (msg: string) => void = console.log,
   now: Date = new Date(),
-  deferredHandles?: Set<string>,
+  deferredHandles?: Map<string, number>,
 ): void {
   const accounts = listAccounts();
   if (accounts.length === 0) {

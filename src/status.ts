@@ -19,6 +19,7 @@ interface AccountStatus {
   lastCostUsd: number | null;
   lastTokens: number | null;
   duplicateOf?: string;
+  deferUntilUtcHour?: number;
 }
 
 function colorizeStatus(windowStatus: AccountStatus["windowStatus"]): string {
@@ -35,25 +36,36 @@ function colorizeStatus(windowStatus: AccountStatus["windowStatus"]): string {
 }
 
 export function formatStatusLine(status: AccountStatus): string {
+  const lines: string[] = [];
+  const dup = status.duplicateOf
+    ? `  [duplicate of ${status.duplicateOf}]`
+    : "";
+  lines.push(
+    `  ${status.handle}: ${colorizeStatus(status.windowStatus)}${dup}`,
+  );
+
   const ping =
     status.lastPing === null
       ? "never"
       : status.lastPing.replace("T", " ").replace(/\.\d+Z$/, "Z");
-  const reset =
-    status.timeUntilReset !== null
-      ? ` (resets in ${status.timeUntilReset})`
-      : "";
-  const dup = status.duplicateOf
-    ? `  [duplicate of ${status.duplicateOf}]`
-    : "";
-  return `  ${status.handle}: ${colorizeStatus(status.windowStatus)}  last ping: ${ping}${reset}${dup}`;
+  lines.push(`    - last ping: ${ping}`);
+
+  if (status.timeUntilReset !== null) {
+    lines.push(`    - resets in ${status.timeUntilReset}`);
+  }
+
+  if (status.deferUntilUtcHour !== undefined) {
+    lines.push(`    - scheduled ping at ${status.deferUntilUtcHour}:00 UTC`);
+  }
+
+  return lines.join("\n");
 }
 
 export function getAccountStatuses(
   accounts: AccountConfig[],
   now: Date = new Date(),
   duplicates?: Map<string, DuplicateGroup>,
-  deferredHandles?: Set<string>,
+  deferredHandles?: Map<string, number>,
 ): AccountStatus[] {
   // Build handle -> other handles lookup
   const dupLookup = new Map<string, string>();
@@ -88,6 +100,9 @@ export function getAccountStatuses(
     }
     const window = getWindowReset(account.handle, now);
     const isDeferred = !window && deferredHandles?.has(account.handle);
+    const deferUntilUtcHour = isDeferred
+      ? deferredHandles?.get(account.handle)
+      : undefined;
     return {
       handle: account.handle,
       configDir: account.configDir,
@@ -101,6 +116,7 @@ export function getAccountStatuses(
       lastCostUsd,
       lastTokens,
       duplicateOf,
+      deferUntilUtcHour,
     };
   });
 }
@@ -108,7 +124,7 @@ export function getAccountStatuses(
 export function printAccountTable(
   log: (msg: string) => void = console.log,
   now: Date = new Date(),
-  deferredHandles?: Set<string>,
+  deferredHandles?: Map<string, number>,
 ): void {
   const accounts = listAccounts();
   if (accounts.length === 0) {

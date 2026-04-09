@@ -1,6 +1,7 @@
 import { basename, resolve } from "node:path";
 import { Command } from "commander";
 import { checkAccounts } from "./check.js";
+import { yellow } from "./color.js";
 import { generateCompletion } from "./completions.js";
 import {
   addAccount,
@@ -40,13 +41,13 @@ import { suggestAccount } from "./suggest.js";
 
 declare const __VERSION__: string;
 
-function getDeferredHandles(): Set<string> {
-  const deferred = new Set<string>();
+function getDeferredHandles(): Map<string, number> {
+  const deferred = new Map<string, number>();
   const now = new Date();
   for (const account of listAccounts()) {
     const schedule = readAccountSchedule(account.configDir);
     if (schedule && shouldDefer(now, schedule.optimalPingHour).defer) {
-      deferred.add(account.handle);
+      deferred.set(account.handle, schedule.optimalPingHour);
     }
   }
   return deferred;
@@ -477,10 +478,14 @@ daemon
     }
     if (status.versionMismatch) {
       console.log(
-        `  Warning: daemon is running v${status.daemonVersion} but v${__VERSION__} is installed.`,
+        yellow(
+          `  Warning: daemon is running v${status.daemonVersion} but v${__VERSION__} is installed.`,
+        ),
       );
       console.log(
-        "  Restart to pick up the new version: cc-ping daemon stop && cc-ping daemon start",
+        yellow(
+          "  Restart to pick up the new version: cc-ping daemon stop && cc-ping daemon start",
+        ),
       );
     }
     console.log("");
