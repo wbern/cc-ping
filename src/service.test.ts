@@ -74,6 +74,7 @@ describe("service", () => {
       expect(plist).toContain("<key>SuccessfulExit</key>");
       expect(plist).toContain("<false/>");
       expect(plist).toContain("daemon.log</string>");
+      expect(plist).toContain("<string>--auto-update</string>");
     });
 
     it("includes all flags when set", () => {
@@ -102,8 +103,22 @@ describe("service", () => {
 
     it("omits CC_PING_CONFIG when configDir is not provided", () => {
       const plist = generateLaunchdPlist({}, execInfo);
-      expect(plist).not.toContain("<key>EnvironmentVariables</key>");
-      expect(plist).not.toContain("<key>CC_PING_CONFIG</key>");
+      expect(plist).not.toContain("CC_PING_CONFIG");
+    });
+
+    it("includes CC_PING_BIN when executable is a direct path", () => {
+      const plist = generateLaunchdPlist({}, execInfo);
+      expect(plist).toContain("CC_PING_BIN");
+      expect(plist).toContain("/usr/local/bin/cc-ping");
+    });
+
+    it("omits CC_PING_BIN when executable uses node fallback", () => {
+      const fallbackInfo: ExecInfo = {
+        executable: "/usr/bin/node",
+        args: ["/usr/local/lib/cli.js"],
+      };
+      const plist = generateLaunchdPlist({}, fallbackInfo);
+      expect(plist).not.toContain("CC_PING_BIN");
     });
 
     it("uses fallback executable with args", () => {
@@ -155,6 +170,7 @@ describe("service", () => {
       expect(unit).toContain(
         "ExecStart=/usr/local/bin/cc-ping daemon _run --interval-ms",
       );
+      expect(unit).toContain("--auto-update");
     });
 
     it("includes all flags when set", () => {
@@ -178,9 +194,23 @@ describe("service", () => {
       expect(unit).toContain("Environment=CC_PING_CONFIG=/custom/config");
     });
 
-    it("omits Environment when configDir is not provided", () => {
+    it("omits CC_PING_CONFIG when configDir is not provided", () => {
       const unit = generateSystemdUnit({}, execInfo);
-      expect(unit).not.toContain("Environment=");
+      expect(unit).not.toContain("CC_PING_CONFIG");
+    });
+
+    it("includes CC_PING_BIN when executable is a direct path", () => {
+      const unit = generateSystemdUnit({}, execInfo);
+      expect(unit).toContain("Environment=CC_PING_BIN=/usr/local/bin/cc-ping");
+    });
+
+    it("omits CC_PING_BIN when executable uses node fallback", () => {
+      const fallbackInfo: ExecInfo = {
+        executable: "/usr/bin/node",
+        args: ["/usr/local/lib/cli.js"],
+      };
+      const unit = generateSystemdUnit({}, fallbackInfo);
+      expect(unit).not.toContain("CC_PING_BIN");
     });
 
     it("quotes args with spaces", () => {

@@ -88,6 +88,7 @@ export function generateLaunchdPlist(
   if (options.notify) programArgs.push("--notify");
   if (options.smartSchedule === false)
     programArgs.push("--smart-schedule", "off");
+  programArgs.push("--auto-update");
 
   const allArgs = [execInfo.executable, ...programArgs];
   const argsXml = allArgs
@@ -99,13 +100,22 @@ export function generateLaunchdPlist(
     "daemon.log",
   );
 
+  const envVars: Record<string, string> = {};
+  if (configDir) envVars.CC_PING_CONFIG = configDir;
+  if (execInfo.args.length === 0) envVars.CC_PING_BIN = execInfo.executable;
+
   let envSection = "";
-  if (configDir) {
+  if (Object.keys(envVars).length > 0) {
+    const entries = Object.entries(envVars)
+      .map(
+        ([k, v]) =>
+          `      <key>${escapeXml(k)}</key>\n      <string>${escapeXml(v)}</string>`,
+      )
+      .join("\n");
     envSection = `
     <key>EnvironmentVariables</key>
     <dict>
-      <key>CC_PING_CONFIG</key>
-      <string>${escapeXml(configDir)}</string>
+${entries}
     </dict>`;
   }
 
@@ -153,15 +163,17 @@ export function generateSystemdUnit(
   if (options.notify) programArgs.push("--notify");
   if (options.smartSchedule === false)
     programArgs.push("--smart-schedule", "off");
+  programArgs.push("--auto-update");
 
   const execStart = [execInfo.executable, ...programArgs]
     .map((a) => (a.includes(" ") ? `"${a}"` : a))
     .join(" ");
 
-  let envLine = "";
-  if (configDir) {
-    envLine = `\nEnvironment=CC_PING_CONFIG=${configDir}`;
-  }
+  const envPairs: string[] = [];
+  if (configDir) envPairs.push(`CC_PING_CONFIG=${configDir}`);
+  if (execInfo.args.length === 0)
+    envPairs.push(`CC_PING_BIN=${execInfo.executable}`);
+  const envLine = envPairs.map((p) => `\nEnvironment=${p}`).join("");
 
   return `[Unit]
 Description=cc-ping daemon - auto-ping Claude Code sessions

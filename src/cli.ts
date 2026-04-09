@@ -549,6 +549,7 @@ daemon
   .option("--bell", "Ring terminal bell on ping failure", false)
   .option("--notify", "Send desktop notification on ping failure", false)
   .option("--smart-schedule <on|off>", "Smart scheduling (default: on)")
+  .option("--auto-update", "Auto-restart on upgrade (for service installs)")
   .action(async (opts) => {
     const intervalMs = Number(opts.intervalMs);
     if (!intervalMs || intervalMs <= 0) {
@@ -575,6 +576,7 @@ daemon
       bell: opts.bell,
       notify: opts.notify,
       smartSchedule,
+      autoUpdate: opts.autoUpdate,
     });
   });
 

@@ -1,12 +1,10 @@
-import { execSync, spawn } from "node:child_process";
+import { execFileSync, execSync, spawn } from "node:child_process";
 import {
   existsSync,
   closeSync as fsCloseSync,
   openSync as fsOpenSync,
   mkdirSync,
   readFileSync,
-  realpathSync,
-  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -179,6 +177,18 @@ export function msUntilUtcHour(targetHour: number, now: Date): number {
   const targetMs = targetHour * 3600_000;
   const diff = targetMs - currentMs;
   return diff > 0 ? diff : diff + 24 * 3600_000;
+}
+
+export function hasVersionChanged(
+  runningVersion: string | undefined,
+  getInstalledVersion: () => string,
+): boolean {
+  if (!runningVersion) return false;
+  try {
+    return getInstalledVersion() !== runningVersion;
+  } catch {
+    return false;
+  }
 }
 
 // --- Daemon loop ---
@@ -519,7 +529,6 @@ interface RunDaemonDeps extends DaemonLoopDeps {
   onSignal: (signal: string, handler: () => void) => void;
   removeSignal: (signal: string, handler: () => void) => void;
   exit: (code: number) => void;
-  restart?: () => void;
 }
 
 export async function runDaemon(
@@ -567,15 +576,7 @@ export async function runDaemon(
   }
 
   if (exitReason === "upgrade") {
-    if (deps.restart) {
-      try {
-        deps.restart();
-      } catch {
-        deps.exit(75);
-      }
-    } else {
-      deps.exit(75); // EX_TEMPFAIL — triggers service manager restart
-    }
+    deps.exit(75); // EX_TEMPFAIL — triggers service manager restart
   }
 }
 
@@ -587,6 +588,7 @@ export async function runDaemonWithDefaults(
     bell?: boolean;
     notify?: boolean;
     smartSchedule?: boolean;
+    autoUpdate?: boolean;
   },
 ): Promise<void> {
   const stopPath = daemonStopPath();
@@ -623,8 +625,33 @@ export async function runDaemonWithDefaults(
     };
   }
 
-  const binaryPath = realpathSync(process.argv[1]);
-  const startMtimeMs = statSync(binaryPath).mtimeMs;
+  let hasUpgraded: (() => boolean) | undefined;
+  if (options.autoUpdate) {
+    // Use CC_PING_BIN (set by service template) or fall back to PATH lookup.
+    // The shim path is stable across upgrades — its contents change to
+    // point at the new version, so running it returns the new version.
+    let ccPingBin = process.env.CC_PING_BIN;
+    if (!ccPingBin) {
+      try {
+        ccPingBin = execSync("which cc-ping", {
+          encoding: "utf-8",
+          timeout: 5000,
+        }).trim();
+      } catch {
+        console.log(
+          "Auto-update: cc-ping not found in PATH, version checks disabled",
+        );
+      }
+    }
+    if (ccPingBin) {
+      hasUpgraded = () =>
+        hasVersionChanged(readDaemonState()?.version, () =>
+          execFileSync(ccPingBin, ["--version"], { timeout: 5000 })
+            .toString()
+            .trim(),
+        );
+    }
+  }
 
   await runDaemon(intervalMs, options, {
     runPing,
@@ -634,13 +661,7 @@ export async function runDaemonWithDefaults(
     log: (msg) => console.log(msg),
     isWindowActive: (handle) => getWindowReset(handle) !== null,
     shouldDeferPing,
-    hasUpgraded: () => {
-      try {
-        return statSync(binaryPath).mtimeMs !== startMtimeMs;
-      } catch {
-        return false;
-      }
-    },
+    hasUpgraded,
     updateState: (patch) => {
       const current = readDaemonState();
       if (current) writeDaemonState({ ...current, ...patch });
@@ -648,22 +669,6 @@ export async function runDaemonWithDefaults(
     onSignal: (signal, handler) => process.on(signal, handler),
     removeSignal: (signal, handler) => process.removeListener(signal, handler),
     exit: (code) => process.exit(code),
-    restart: () => {
-      console.log("Restarting daemon with updated binary...");
-      const result = startDaemon({
-        interval: `${intervalMs / 60_000}m`,
-        quiet: options.quiet,
-        bell: options.bell,
-        notify: options.notify,
-        smartSchedule: options.smartSchedule,
-      });
-      if (result.success) {
-        console.log(`Daemon restarted (PID: ${result.pid})`);
-      } else {
-        console.log(`Failed to restart: ${result.error}`);
-        process.exit(75);
-      }
-    },
   });
 }
 /* c8 ignore stop */
