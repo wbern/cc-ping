@@ -6,6 +6,7 @@ export function showDefault(
   log: (msg: string) => void = console.log,
   now: Date = new Date(),
   deferredHandles?: Map<string, number>,
+  options?: { censor?: boolean },
 ): void {
   const accounts = listAccounts();
   if (accounts.length === 0) {
@@ -19,7 +20,7 @@ export function showDefault(
   const dupes = findDuplicates(accounts);
   const statuses = getAccountStatuses(accounts, now, dupes, deferredHandles);
   for (const s of statuses) {
-    log(formatStatusLine(s));
+    log(formatStatusLine(s, options));
   }
 
   const needsPing = statuses.filter((s) => s.windowStatus !== "active");

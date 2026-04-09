@@ -61,6 +61,7 @@ const program = new Command()
     "--config <path>",
     "Path to config directory (default: ~/.config/cc-ping, env: CC_PING_CONFIG)",
   )
+  .option("--censor", "Mask account handles in output (for screenshots)")
   .hook("preAction", (thisCommand) => {
     const opts = thisCommand.opts();
     if (opts.config) {
@@ -68,7 +69,10 @@ const program = new Command()
     }
   })
   .action(() => {
-    showDefault(console.log, new Date(), getDeferredHandles());
+    const opts = program.opts();
+    showDefault(console.log, new Date(), getDeferredHandles(), {
+      censor: opts.censor,
+    });
   });
 
 program
@@ -243,7 +247,9 @@ program
       console.log(JSON.stringify(statuses, null, 2));
       return;
     }
-    printAccountTable(console.log, new Date(), deferred);
+    printAccountTable(console.log, new Date(), deferred, {
+      censor: program.opts().censor,
+    });
   });
 
 program
@@ -387,7 +393,9 @@ daemon
         "Hint: won't survive a reboot. Use `cc-ping daemon install` for a persistent service.",
       );
     }
-    printAccountTable(console.log, new Date(), getDeferredHandles());
+    printAccountTable(console.log, new Date(), getDeferredHandles(), {
+      censor: program.opts().censor,
+    });
   });
 
 daemon
@@ -489,7 +497,9 @@ daemon
       );
     }
     console.log("");
-    printAccountTable(console.log, new Date(), getDeferredHandles());
+    printAccountTable(console.log, new Date(), getDeferredHandles(), {
+      censor: program.opts().censor,
+    });
   });
 
 daemon

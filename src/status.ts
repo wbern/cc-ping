@@ -35,14 +35,41 @@ function colorizeStatus(windowStatus: AccountStatus["windowStatus"]): string {
   }
 }
 
-export function formatStatusLine(status: AccountStatus): string {
+export function censorHandle(handle: string): string {
+  // For emails: mask local part and domain, keep TLD
+  // For domains: mask name, keep TLD
+  const atIdx = handle.indexOf("@");
+  if (atIdx !== -1) {
+    const local = handle.slice(0, atIdx);
+    const domain = handle.slice(atIdx + 1);
+    return censorPart(local) + "@" + censorDomain(domain);
+  }
+  return censorDomain(handle);
+}
+
+function censorPart(part: string): string {
+  if (part.length <= 1) return part;
+  return part[0] + "*".repeat(part.length - 1);
+}
+
+function censorDomain(domain: string): string {
+  const lastDot = domain.lastIndexOf(".");
+  if (lastDot === -1) return censorPart(domain);
+  const name = domain.slice(0, lastDot);
+  const tld = domain.slice(lastDot);
+  return censorPart(name) + tld;
+}
+
+export function formatStatusLine(
+  status: AccountStatus,
+  options?: { censor?: boolean },
+): string {
   const lines: string[] = [];
+  const handle = options?.censor ? censorHandle(status.handle) : status.handle;
   const dup = status.duplicateOf
-    ? `  [duplicate of ${status.duplicateOf}]`
+    ? `  [duplicate of ${options?.censor ? censorHandle(status.duplicateOf) : status.duplicateOf}]`
     : "";
-  lines.push(
-    `  ${status.handle}: ${colorizeStatus(status.windowStatus)}${dup}`,
-  );
+  lines.push(`  ${handle}: ${colorizeStatus(status.windowStatus)}${dup}`);
 
   const ping =
     status.lastPing === null
@@ -125,6 +152,7 @@ export function printAccountTable(
   log: (msg: string) => void = console.log,
   now: Date = new Date(),
   deferredHandles?: Map<string, number>,
+  options?: { censor?: boolean },
 ): void {
   const accounts = listAccounts();
   if (accounts.length === 0) {
@@ -134,6 +162,6 @@ export function printAccountTable(
   const dupes = findDuplicates(accounts);
   const statuses = getAccountStatuses(accounts, now, dupes, deferredHandles);
   for (const s of statuses) {
-    log(formatStatusLine(s));
+    log(formatStatusLine(s, options));
   }
 }

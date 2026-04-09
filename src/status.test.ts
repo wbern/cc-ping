@@ -24,8 +24,12 @@ vi.mock("./identity.js", () => ({
 const { listAccounts } = await import("./config.js");
 const { findDuplicates } = await import("./identity.js");
 const { recordPing } = await import("./state.js");
-const { getAccountStatuses, formatStatusLine, printAccountTable } =
-  await import("./status.js");
+const {
+  getAccountStatuses,
+  formatStatusLine,
+  printAccountTable,
+  censorHandle,
+} = await import("./status.js");
 
 describe("getAccountStatuses", () => {
   const stateDir = join(
@@ -283,6 +287,59 @@ describe("formatStatusLine", () => {
       lastTokens: null,
     });
     expect(line).not.toContain("duplicate");
+  });
+
+  it("censors handle when censor option is true", () => {
+    const line = formatStatusLine(
+      {
+        handle: "qvazzler@gmail.com",
+        configDir: "/tmp/q",
+        lastPing: null,
+        windowStatus: "unknown",
+        timeUntilReset: null,
+        lastCostUsd: null,
+        lastTokens: null,
+      },
+      { censor: true },
+    );
+    expect(line).toContain("q*******@g****.com");
+    expect(line).not.toContain("qvazzler");
+  });
+
+  it("censors duplicateOf when censor option is true", () => {
+    const line = formatStatusLine(
+      {
+        handle: "bernting.se",
+        configDir: "/tmp/b",
+        lastPing: null,
+        windowStatus: "unknown",
+        timeUntilReset: null,
+        lastCostUsd: null,
+        lastTokens: null,
+        duplicateOf: "bernting",
+      },
+      { censor: true },
+    );
+    expect(line).toContain("[duplicate of b*******]");
+    expect(line).not.toContain("[duplicate of bernting]");
+  });
+});
+
+describe("censorHandle", () => {
+  it("masks email handles keeping first char and TLD", () => {
+    expect(censorHandle("qvazzler@gmail.com")).toBe("q*******@g****.com");
+  });
+
+  it("masks domain-style handles keeping first char and TLD", () => {
+    expect(censorHandle("bernting.se")).toBe("b*******.se");
+  });
+
+  it("masks short handles", () => {
+    expect(censorHandle("akka.io")).toBe("a***.io");
+  });
+
+  it("returns single-char handles as-is", () => {
+    expect(censorHandle("a")).toBe("a");
   });
 });
 
