@@ -595,6 +595,7 @@ export async function runDaemonWithDefaults(
   const { runPing } = await import("./run-ping.js");
   const { listAccounts } = await import("./config.js");
   const { getWindowReset } = await import("./state.js");
+  const { checkRecentActivity } = await import("./schedule.js");
 
   const smartScheduleEnabled = options.smartSchedule !== false;
   let shouldDeferPing:
@@ -671,7 +672,11 @@ export async function runDaemonWithDefaults(
     sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
     shouldStop: () => existsSync(stopPath),
     log: (msg) => console.log(msg),
-    isWindowActive: (handle) => getWindowReset(handle) !== null,
+    isWindowActive: (handle) => {
+      if (getWindowReset(handle) !== null) return true;
+      const account = listAccounts().find((a) => a.handle === handle);
+      return account ? checkRecentActivity(account.configDir) : false;
+    },
     shouldDeferPing,
     hasUpgraded,
     updateState: (patch) => {

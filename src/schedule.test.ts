@@ -5,8 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   buildHourHistogram,
+  checkRecentActivity,
   findOptimalPingHour,
   getAccountSchedule,
+  isRecentlyActive,
   parseSmartSchedule,
   readAccountSchedule,
   shouldDefer,
@@ -419,5 +421,72 @@ describe("parseSmartSchedule", () => {
     expect(() => parseSmartSchedule("maybe")).toThrow(
       'Invalid smart-schedule value: "maybe"',
     );
+  });
+});
+
+describe("isRecentlyActive", () => {
+  it("returns true when last activity is within 5 hours", () => {
+    const now = new Date("2026-04-09T14:00:00.000Z");
+    const twoHoursAgo = now.getTime() - 2 * 60 * 60 * 1000;
+    const lines = [JSON.stringify({ timestamp: twoHoursAgo })];
+    expect(isRecentlyActive(lines, now)).toBe(true);
+  });
+
+  it("returns false when last activity is older than 5 hours", () => {
+    const now = new Date("2026-04-09T14:00:00.000Z");
+    const sixHoursAgo = now.getTime() - 6 * 60 * 60 * 1000;
+    const lines = [JSON.stringify({ timestamp: sixHoursAgo })];
+    expect(isRecentlyActive(lines, now)).toBe(false);
+  });
+
+  it("returns false for empty history", () => {
+    const now = new Date("2026-04-09T14:00:00.000Z");
+    expect(isRecentlyActive([], now)).toBe(false);
+  });
+
+  it("uses the most recent timestamp from multiple entries", () => {
+    const now = new Date("2026-04-09T14:00:00.000Z");
+    const sixHoursAgo = now.getTime() - 6 * 60 * 60 * 1000;
+    const oneHourAgo = now.getTime() - 1 * 60 * 60 * 1000;
+    const lines = [
+      JSON.stringify({ timestamp: sixHoursAgo }),
+      JSON.stringify({ timestamp: oneHourAgo }),
+    ];
+    expect(isRecentlyActive(lines, now)).toBe(true);
+  });
+
+  it("ignores string timestamps from cc-ping history", () => {
+    const now = new Date("2026-04-09T14:00:00.000Z");
+    const lines = [JSON.stringify({ timestamp: "2026-04-09T13:00:00.000Z" })];
+    expect(isRecentlyActive(lines, now)).toBe(false);
+  });
+
+  it("skips malformed lines", () => {
+    const now = new Date("2026-04-09T14:00:00.000Z");
+    const oneHourAgo = now.getTime() - 1 * 60 * 60 * 1000;
+    const lines = ["not json{{{", JSON.stringify({ timestamp: oneHourAgo })];
+    expect(isRecentlyActive(lines, now)).toBe(true);
+  });
+});
+
+describe("checkRecentActivity", () => {
+  const dir = join(tmpdir(), `cc-ping-recent-${process.pid}`);
+
+  beforeEach(() => rmSync(dir, { recursive: true, force: true }));
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("returns true when history.jsonl has recent activity", () => {
+    const now = new Date("2026-04-09T14:00:00.000Z");
+    const oneHourAgo = now.getTime() - 1 * 60 * 60 * 1000;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "history.jsonl"),
+      JSON.stringify({ timestamp: oneHourAgo }),
+    );
+    expect(checkRecentActivity(dir, now)).toBe(true);
+  });
+
+  it("returns false when history.jsonl does not exist", () => {
+    expect(checkRecentActivity(dir)).toBe(false);
   });
 });

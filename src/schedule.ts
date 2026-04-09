@@ -2,6 +2,23 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const QUOTA_WINDOW_HOURS = 5;
+const QUOTA_WINDOW_MS = QUOTA_WINDOW_HOURS * 60 * 60 * 1000;
+
+export function isRecentlyActive(historyLines: string[], now: Date): boolean {
+  let latest = 0;
+  for (const line of historyLines) {
+    try {
+      const entry = JSON.parse(line);
+      if (typeof entry.timestamp === "number" && entry.timestamp > latest) {
+        latest = entry.timestamp;
+      }
+    } catch {
+      // skip malformed lines
+    }
+  }
+  if (latest === 0) return false;
+  return now.getTime() - latest < QUOTA_WINDOW_MS;
+}
 
 export function buildHourHistogram(timestamps: Date[]): number[] {
   const bins = new Array(24).fill(0);
@@ -126,6 +143,17 @@ export function readAccountSchedule(
   const content = readFileSync(historyPath, "utf-8");
   const lines = content.split("\n").filter((l) => l.trim());
   return getAccountSchedule(lines, now, resetAt);
+}
+
+export function checkRecentActivity(
+  configDir: string,
+  now: Date = new Date(),
+): boolean {
+  const historyPath = join(configDir, "history.jsonl");
+  if (!existsSync(historyPath)) return false;
+  const content = readFileSync(historyPath, "utf-8");
+  const lines = content.split("\n").filter((l) => l.trim());
+  return isRecentlyActive(lines, now);
 }
 
 const TRUTHY = new Set(["true", "on", "1"]);
