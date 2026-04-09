@@ -938,21 +938,106 @@ describe("daemon", () => {
       expect(removeStopFile).toHaveBeenCalled();
     });
 
-    it("force kills after timeout", async () => {
+    it("sends SIGTERM then SIGKILL after timeout", async () => {
       const kill = vi.fn();
+      const forceKill = vi.fn();
 
       const result = await stopDaemon({
         getDaemonStatus: () => ({ running: true, pid: 456 }),
         writeStopFile: vi.fn(),
-        isProcessRunning: () => true, // never exits gracefully
+        isProcessRunning: () => true, // never exits
         removeDaemonState: vi.fn().mockReturnValue(true),
         removeStopFile: vi.fn(),
         sleep: vi.fn().mockResolvedValue(undefined),
         kill,
+        forceKill,
+        log: vi.fn(),
+      });
+
+      expect(result.success).toBe(false);
+      expect(kill).toHaveBeenCalledWith(456);
+      expect(forceKill).toHaveBeenCalledWith(456);
+    });
+
+    it("calls log callback during graceful wait and force kill", async () => {
+      const log = vi.fn();
+      const kill = vi.fn();
+
+      await stopDaemon({
+        getDaemonStatus: () => ({ running: true, pid: 456 }),
+        writeStopFile: vi.fn(),
+        isProcessRunning: () => true, // never exits
+        removeDaemonState: vi.fn().mockReturnValue(true),
+        removeStopFile: vi.fn(),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        kill,
+        forceKill: vi.fn(),
+        log,
+      });
+
+      expect(log).toHaveBeenCalledWith(
+        "Waiting for daemon to stop (PID: 456)...",
+      );
+      expect(log).toHaveBeenCalledWith("Force-killing daemon...");
+    });
+
+    it("escalates to forceKill when process survives SIGTERM", async () => {
+      const kill = vi.fn();
+      const forceKill = vi.fn();
+
+      await stopDaemon({
+        getDaemonStatus: () => ({ running: true, pid: 456 }),
+        writeStopFile: vi.fn(),
+        isProcessRunning: () => true, // never exits
+        removeDaemonState: vi.fn().mockReturnValue(true),
+        removeStopFile: vi.fn(),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        kill,
+        forceKill,
+        log: vi.fn(),
+      });
+
+      expect(kill).toHaveBeenCalledWith(456);
+      expect(forceKill).toHaveBeenCalledWith(456);
+    });
+
+    it("returns success when process dies after SIGTERM", async () => {
+      let killSent = false;
+      const result = await stopDaemon({
+        getDaemonStatus: () => ({ running: true, pid: 456 }),
+        writeStopFile: vi.fn(),
+        isProcessRunning: () => {
+          // Dies after SIGTERM is sent
+          return !killSent;
+        },
+        removeDaemonState: vi.fn().mockReturnValue(true),
+        removeStopFile: vi.fn(),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        kill: () => {
+          killSent = true;
+        },
+        forceKill: vi.fn(),
+        log: vi.fn(),
       });
 
       expect(result.success).toBe(true);
-      expect(kill).toHaveBeenCalledWith(456);
+    });
+
+    it("returns failure when process survives SIGKILL", async () => {
+      const result = await stopDaemon({
+        getDaemonStatus: () => ({ running: true, pid: 456 }),
+        writeStopFile: vi.fn(),
+        isProcessRunning: () => true, // immortal process
+        removeDaemonState: vi.fn().mockReturnValue(true),
+        removeStopFile: vi.fn(),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        kill: vi.fn(),
+        forceKill: vi.fn(),
+        log: vi.fn(),
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Failed to stop daemon (PID: 456)");
     });
 
     it("handles kill error gracefully", async () => {
@@ -966,9 +1051,13 @@ describe("daemon", () => {
         kill: () => {
           throw new Error("ESRCH");
         },
+        forceKill: () => {
+          throw new Error("ESRCH");
+        },
+        log: vi.fn(),
       });
 
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
     });
   });
 

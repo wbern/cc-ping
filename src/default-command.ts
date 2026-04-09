@@ -5,6 +5,7 @@ import { formatStatusLine, getAccountStatuses } from "./status.js";
 export function showDefault(
   log: (msg: string) => void = console.log,
   now: Date = new Date(),
+  deferredHandles?: Set<string>,
 ): void {
   const accounts = listAccounts();
   if (accounts.length === 0) {
@@ -16,7 +17,7 @@ export function showDefault(
   }
 
   const dupes = findDuplicates(accounts);
-  const statuses = getAccountStatuses(accounts, now, dupes);
+  const statuses = getAccountStatuses(accounts, now, dupes, deferredHandles);
   for (const s of statuses) {
     log(formatStatusLine(s));
   }

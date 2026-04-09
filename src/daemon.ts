@@ -405,6 +405,8 @@ interface StopDaemonDeps {
   removeStopFile: () => void;
   sleep: (ms: number) => Promise<void>;
   kill: (pid: number) => void;
+  forceKill: (pid: number) => void;
+  log: (msg: string) => void;
 }
 
 export async function stopDaemon(
@@ -445,6 +447,19 @@ export async function stopDaemon(
         process.kill(pid, "SIGTERM");
       }
     });
+  /* c8 ignore next -- production default */
+  const _forceKill =
+    deps?.forceKill ??
+    /* c8 ignore next 7 -- production default */
+    ((pid: number) => {
+      if (process.platform === "win32") {
+        execSync(`taskkill /F /PID ${pid}`);
+      } else {
+        process.kill(pid, "SIGKILL");
+      }
+    });
+  /* c8 ignore next -- production default */
+  const _log = deps?.log ?? ((msg: string) => console.log(msg));
 
   const status = _getDaemonStatus();
   if (!status.running || !status.pid) {
@@ -453,6 +468,7 @@ export async function stopDaemon(
 
   const pid = status.pid;
   _writeStopFile();
+  _log(`Waiting for daemon to stop (PID: ${pid})...`);
 
   // Poll for graceful exit
   for (let i = 0; i < GRACEFUL_POLL_ATTEMPTS; i++) {
@@ -464,7 +480,8 @@ export async function stopDaemon(
     }
   }
 
-  // Fallback: force kill
+  // Graceful exit timed out — send SIGTERM
+  _log("Force-killing daemon...");
   try {
     _kill(pid);
   } catch {
@@ -472,8 +489,27 @@ export async function stopDaemon(
   }
 
   await _sleep(POST_KILL_DELAY_MS);
+
+  // Escalate to SIGKILL if still alive
+  if (_isProcessRunning(pid)) {
+    try {
+      _forceKill(pid);
+    } catch {
+      // Process may have already exited
+    }
+    await _sleep(POST_KILL_DELAY_MS);
+  }
+
   _removeDaemonState();
   _removeStopFile();
+
+  if (_isProcessRunning(pid)) {
+    return {
+      success: false,
+      pid,
+      error: `Failed to stop daemon (PID: ${pid})`,
+    };
+  }
   return { success: true, pid };
 }
 

@@ -12,3 +12,4 @@ function wrap(code: string, text: string): string {
 export const green = (text: string): string => wrap("32", text);
 export const red = (text: string): string => wrap("31", text);
 export const yellow = (text: string): string => wrap("33", text);
+export const blue = (text: string): string => wrap("34", text);

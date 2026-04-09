@@ -1,4 +1,4 @@
-import { green, red, yellow } from "./color.js";
+import { blue, green, red, yellow } from "./color.js";
 import { listAccounts } from "./config.js";
 import type { DuplicateGroup } from "./identity.js";
 import { findDuplicates } from "./identity.js";
@@ -14,7 +14,7 @@ interface AccountStatus {
   handle: string;
   configDir: string;
   lastPing: string | null;
-  windowStatus: "active" | "needs ping" | "unknown";
+  windowStatus: "active" | "needs ping" | "deferred" | "unknown";
   timeUntilReset: string | null;
   lastCostUsd: number | null;
   lastTokens: number | null;
@@ -27,6 +27,8 @@ function colorizeStatus(windowStatus: AccountStatus["windowStatus"]): string {
       return green(windowStatus);
     case "needs ping":
       return red(windowStatus);
+    case "deferred":
+      return blue(windowStatus);
     default:
       return yellow(windowStatus);
   }
@@ -51,6 +53,7 @@ export function getAccountStatuses(
   accounts: AccountConfig[],
   now: Date = new Date(),
   duplicates?: Map<string, DuplicateGroup>,
+  deferredHandles?: Set<string>,
 ): AccountStatus[] {
   // Build handle -> other handles lookup
   const dupLookup = new Map<string, string>();
@@ -84,11 +87,16 @@ export function getAccountStatuses(
       };
     }
     const window = getWindowReset(account.handle, now);
+    const isDeferred = !window && deferredHandles?.has(account.handle);
     return {
       handle: account.handle,
       configDir: account.configDir,
       lastPing: lastPing.toISOString(),
-      windowStatus: window ? ("active" as const) : ("needs ping" as const),
+      windowStatus: window
+        ? ("active" as const)
+        : isDeferred
+          ? ("deferred" as const)
+          : ("needs ping" as const),
       timeUntilReset: window ? formatTimeRemaining(window.remainingMs) : null,
       lastCostUsd,
       lastTokens,
@@ -100,6 +108,7 @@ export function getAccountStatuses(
 export function printAccountTable(
   log: (msg: string) => void = console.log,
   now: Date = new Date(),
+  deferredHandles?: Set<string>,
 ): void {
   const accounts = listAccounts();
   if (accounts.length === 0) {
@@ -107,7 +116,7 @@ export function printAccountTable(
     return;
   }
   const dupes = findDuplicates(accounts);
-  const statuses = getAccountStatuses(accounts, now, dupes);
+  const statuses = getAccountStatuses(accounts, now, dupes, deferredHandles);
   for (const s of statuses) {
     log(formatStatusLine(s));
   }

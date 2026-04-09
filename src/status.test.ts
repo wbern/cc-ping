@@ -92,6 +92,16 @@ describe("getAccountStatuses", () => {
     });
   });
 
+  it("returns deferred status when account needs ping but is in deferred set", () => {
+    const pingTime = new Date("2025-01-01T00:00:00.000Z");
+    recordPing("deferred-acct", pingTime);
+    const now = new Date("2025-01-01T06:00:00.000Z"); // window expired
+    const accounts = [{ handle: "deferred-acct", configDir: "/tmp/deferred" }];
+    const deferred = new Set(["deferred-acct"]);
+    const statuses = getAccountStatuses(accounts, now, undefined, deferred);
+    expect(statuses[0].windowStatus).toBe("deferred");
+  });
+
   it("returns empty array for no accounts", () => {
     const statuses = getAccountStatuses([]);
     expect(statuses).toEqual([]);
@@ -201,6 +211,20 @@ describe("formatStatusLine", () => {
     expect(line).toContain("never");
   });
 
+  it("formats a deferred account", () => {
+    const line = formatStatusLine({
+      handle: "eve",
+      configDir: "/tmp/eve",
+      lastPing: "2025-01-01T00:00:00.000Z",
+      windowStatus: "deferred",
+      timeUntilReset: null,
+      lastCostUsd: null,
+      lastTokens: null,
+    });
+    expect(line).toContain("eve");
+    expect(line).toContain("deferred");
+  });
+
   it("does not include cost info even when available", () => {
     const line = formatStatusLine({
       handle: "alice",
@@ -303,6 +327,22 @@ describe("printAccountTable", () => {
     printAccountTable((msg: string) => lines.push(msg), now);
     expect(lines[0]).toContain("active");
     expect(lines[0]).toContain("resets in 4h 0m");
+  });
+
+  it("passes deferredHandles to getAccountStatuses", () => {
+    vi.mocked(listAccounts).mockReturnValue([
+      { handle: "alice", configDir: "/tmp/alice" },
+    ]);
+    recordPing("alice", new Date("2025-01-01T00:00:00.000Z"));
+
+    const lines: string[] = [];
+    const now = new Date("2025-01-01T06:00:00.000Z"); // window expired
+    printAccountTable(
+      (msg: string) => lines.push(msg),
+      now,
+      new Set(["alice"]),
+    );
+    expect(lines[0]).toContain("deferred");
   });
 
   it("passes duplicates to getAccountStatuses", () => {

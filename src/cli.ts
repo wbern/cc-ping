@@ -29,12 +29,28 @@ import { sendNotification } from "./notify.js";
 import { setConfigDir } from "./paths.js";
 import { runPing } from "./run-ping.js";
 import { scanAccounts } from "./scan.js";
-import { parseSmartSchedule } from "./schedule.js";
+import {
+  parseSmartSchedule,
+  readAccountSchedule,
+  shouldDefer,
+} from "./schedule.js";
 import { parseStagger } from "./stagger.js";
 import { getAccountStatuses, printAccountTable } from "./status.js";
 import { suggestAccount } from "./suggest.js";
 
 declare const __VERSION__: string;
+
+function getDeferredHandles(): Set<string> {
+  const deferred = new Set<string>();
+  const now = new Date();
+  for (const account of listAccounts()) {
+    const schedule = readAccountSchedule(account.configDir);
+    if (schedule && shouldDefer(now, schedule.optimalPingHour).defer) {
+      deferred.add(account.handle);
+    }
+  }
+  return deferred;
+}
 
 const program = new Command()
   .name("cc-ping")
@@ -51,7 +67,7 @@ const program = new Command()
     }
   })
   .action(() => {
-    showDefault();
+    showDefault(console.log, new Date(), getDeferredHandles());
   });
 
 program
@@ -213,14 +229,20 @@ program
   .description("Show status of all accounts with window information")
   .option("--json", "Output as JSON", false)
   .action((opts) => {
+    const deferred = getDeferredHandles();
     if (opts.json) {
       const accounts = listAccounts();
       const dupes = findDuplicates(accounts);
-      const statuses = getAccountStatuses(accounts, new Date(), dupes);
+      const statuses = getAccountStatuses(
+        accounts,
+        new Date(),
+        dupes,
+        deferred,
+      );
       console.log(JSON.stringify(statuses, null, 2));
       return;
     }
-    printAccountTable();
+    printAccountTable(console.log, new Date(), deferred);
   });
 
 program
@@ -364,7 +386,7 @@ daemon
         "Hint: won't survive a reboot. Use `cc-ping daemon install` for a persistent service.",
       );
     }
-    printAccountTable();
+    printAccountTable(console.log, new Date(), getDeferredHandles());
   });
 
 daemon
@@ -410,7 +432,13 @@ daemon
       }
       const accounts = listAccounts();
       const dupes = findDuplicates(accounts);
-      const accountStatuses = getAccountStatuses(accounts, new Date(), dupes);
+      const deferred = getDeferredHandles();
+      const accountStatuses = getAccountStatuses(
+        accounts,
+        new Date(),
+        dupes,
+        deferred,
+      );
       console.log(
         JSON.stringify(
           { ...status, ...serviceInfo, accounts: accountStatuses },
@@ -456,7 +484,7 @@ daemon
       );
     }
     console.log("");
-    printAccountTable();
+    printAccountTable(console.log, new Date(), getDeferredHandles());
   });
 
 daemon
