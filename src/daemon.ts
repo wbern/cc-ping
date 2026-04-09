@@ -170,6 +170,17 @@ function formatUptime(ms: number): string {
   return `${seconds}s`;
 }
 
+export function msUntilUtcHour(targetHour: number, now: Date): number {
+  const currentMs =
+    now.getUTCHours() * 3600_000 +
+    now.getUTCMinutes() * 60_000 +
+    now.getUTCSeconds() * 1000 +
+    now.getUTCMilliseconds();
+  const targetMs = targetHour * 3600_000;
+  const diff = targetMs - currentMs;
+  return diff > 0 ? diff : diff + 24 * 3600_000;
+}
+
 // --- Daemon loop ---
 
 interface DaemonLoopDeps {
@@ -191,6 +202,7 @@ interface DaemonLoopDeps {
   isWindowActive?: (handle: string) => boolean;
   shouldDeferPing?: (handle: string, configDir: string) => DeferResult;
   hasUpgraded?: () => boolean;
+  now?: () => Date;
 }
 
 export async function daemonLoop(
@@ -215,18 +227,29 @@ export async function daemonLoop(
       deps.log(`Skipping ${skipped} account(s) with active window`);
     }
 
+    let soonestDeferHour: number | undefined;
     if (deps.shouldDeferPing) {
-      const deferResults = new Map<string, boolean>();
+      const deferResults = new Map<string, DeferResult>();
       for (const a of accounts) {
-        deferResults.set(
-          a.handle,
-          deps.shouldDeferPing(a.handle, a.configDir).defer,
-        );
+        deferResults.set(a.handle, deps.shouldDeferPing(a.handle, a.configDir));
       }
-      const deferredCount = [...deferResults.values()].filter(Boolean).length;
-      if (deferredCount > 0) {
-        accounts = accounts.filter((a) => !deferResults.get(a.handle));
-        deps.log(`Deferring ${deferredCount} account(s) (smart scheduling)`);
+      const deferred = [...deferResults.entries()].filter(([, r]) => r.defer);
+      if (deferred.length > 0) {
+        accounts = accounts.filter((a) => !deferResults.get(a.handle)?.defer);
+        deps.log(`Deferring ${deferred.length} account(s) (smart scheduling)`);
+        // Track the soonest deferred hour for sleep calculation
+        for (const [, r] of deferred) {
+          if (
+            r.deferUntilUtcHour !== undefined &&
+            (soonestDeferHour === undefined ||
+              /* c8 ignore next -- production default */
+              msUntilUtcHour(r.deferUntilUtcHour, deps.now?.() ?? new Date()) <
+                /* c8 ignore next -- production default */
+                msUntilUtcHour(soonestDeferHour, deps.now?.() ?? new Date()))
+          ) {
+            soonestDeferHour = r.deferUntilUtcHour;
+          }
+        }
       }
     }
 
@@ -234,7 +257,9 @@ export async function daemonLoop(
       deps.log(
         allAccounts.length === 0
           ? "No accounts configured, waiting..."
-          : "All accounts have active windows, waiting...",
+          : soonestDeferHour !== undefined
+            ? "All accounts deferred (smart scheduling), waiting..."
+            : "All accounts have active windows, waiting...",
       );
     } else {
       deps.log(
@@ -264,9 +289,20 @@ export async function daemonLoop(
     }
 
     if (deps.shouldStop()) break;
-    deps.log(`Sleeping ${Math.round(intervalMs / 60_000)}m until next ping...`);
+    let sleepMs = intervalMs;
+    if (soonestDeferHour !== undefined) {
+      const msUntilDefer = msUntilUtcHour(
+        soonestDeferHour,
+        /* c8 ignore next -- production default */
+        deps.now?.() ?? new Date(),
+      );
+      if (msUntilDefer > 0 && msUntilDefer < intervalMs) {
+        sleepMs = msUntilDefer;
+      }
+    }
+    deps.log(`Sleeping ${Math.round(sleepMs / 60_000)}m until next ping...`);
     const sleepStart = Date.now();
-    await deps.sleep(intervalMs);
+    await deps.sleep(sleepMs);
     const overshootMs = Date.now() - sleepStart - intervalMs;
     if (overshootMs > 60_000) {
       wakeDelayMs = overshootMs;

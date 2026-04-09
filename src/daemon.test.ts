@@ -25,6 +25,7 @@ const {
   daemonPidPath,
   daemonLogPath,
   daemonStopPath,
+  msUntilUtcHour,
 } = await import("./daemon.js");
 const { QUOTA_WINDOW_MS } = await import("./state.js");
 
@@ -89,6 +90,20 @@ describe("daemon", () => {
       expect(() => parseInterval("-5")).toThrow(
         "Interval must be a positive number",
       );
+    });
+  });
+
+  describe("msUntilUtcHour", () => {
+    it("returns ms until a future hour today", () => {
+      const now = new Date("2026-04-09T06:00:00Z");
+      // 8 UTC is 2h away
+      expect(msUntilUtcHour(8, now)).toBe(2 * 3600_000);
+    });
+
+    it("wraps to next day when target hour has passed", () => {
+      const now = new Date("2026-04-09T10:00:00Z");
+      // 8 UTC already passed, should be ~22h until tomorrow 8 UTC
+      expect(msUntilUtcHour(8, now)).toBe(22 * 3600_000);
     });
   });
 
@@ -670,6 +685,49 @@ describe("daemon", () => {
       );
       expect(deps.log).toHaveBeenCalledWith(
         expect.stringContaining("Deferring 1 account(s)"),
+      );
+    });
+
+    it("sleeps until soonest deferred account instead of full interval when all accounts deferred", async () => {
+      let stopCalls = 0;
+      const sleepFn = vi.fn().mockResolvedValue(undefined);
+
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+        listAccounts: vi.fn().mockReturnValue([
+          { handle: "alice", configDir: "/tmp/alice" },
+          { handle: "bob", configDir: "/tmp/bob" },
+        ]),
+        sleep: sleepFn,
+        shouldStop: vi.fn(() => {
+          stopCalls++;
+          // First iteration: false at while-check (1), false at mid-check (2)
+          // After sleep: true at while-check (3)
+          return stopCalls > 2;
+        }),
+        log: vi.fn(),
+        shouldDeferPing: vi.fn((handle: string, _configDir: string) =>
+          handle === "alice"
+            ? { defer: true, deferUntilUtcHour: 10 }
+            : { defer: true, deferUntilUtcHour: 8 },
+        ),
+        now: () => new Date("2026-04-09T06:00:00Z"), // 6 UTC, soonest defer is 8 UTC = 2h away
+      };
+
+      await daemonLoop(300 * 60_000, {}, deps); // 5h interval
+
+      // Should NOT have pinged anything
+      expect(deps.runPing).not.toHaveBeenCalled();
+
+      // Should sleep ~2h (until 8 UTC), not the full 5h
+      const sleepMs = sleepFn.mock.calls[0][0];
+      expect(sleepMs).toBeLessThan(300 * 60_000); // less than 5h
+      expect(sleepMs).toBeGreaterThanOrEqual(2 * 60 * 60_000 - 1000); // ~2h (with small tolerance)
+      expect(sleepMs).toBeLessThanOrEqual(2 * 60 * 60_000 + 1000);
+
+      // Should log the correct message (not "active windows")
+      expect(deps.log).toHaveBeenCalledWith(
+        "All accounts deferred (smart scheduling), waiting...",
       );
     });
   });
