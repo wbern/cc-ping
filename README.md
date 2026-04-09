@@ -154,6 +154,7 @@ The daemon is smart about what it pings:
 - **Detects system sleep** — if the machine wakes from sleep and a ping cycle is overdue, the daemon notices and factors the delay into notifications
 - **Singleton enforcement** — only one daemon runs at a time, verified by PID and process name
 - **Graceful shutdown** — `daemon stop` writes a sentinel file and waits up to 60s for a clean exit before force-killing
+- **Auto-restart on upgrade** — after upgrading cc-ping, the daemon detects the binary has changed and exits so the service manager can restart it with the new version. `daemon status` warns if the running daemon is outdated
 
 Logs are written to `~/.config/cc-ping/daemon.log`.
 

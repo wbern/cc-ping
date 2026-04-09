@@ -59,4 +59,5 @@ export interface DaemonState {
   intervalMs: number;
   configDir: string;
   lastPingAt?: string; // ISO 8601
+  version?: string;
 }

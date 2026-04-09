@@ -5,6 +5,8 @@ import {
   openSync as fsOpenSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -111,10 +113,13 @@ interface DaemonStatusResult {
   intervalMs?: number;
   uptime?: string;
   nextPingIn?: string;
+  versionMismatch?: boolean;
+  daemonVersion?: string;
 }
 
 export function getDaemonStatus(deps?: {
   isDaemonProcess?: (pid: number) => boolean;
+  currentVersion?: string;
 }): DaemonStatusResult {
   /* c8 ignore next -- real isDaemonProcess uses execSync, tested via DI */
   const _isDaemonProcess = deps?.isDaemonProcess ?? isDaemonProcess;
@@ -137,6 +142,12 @@ export function getDaemonStatus(deps?: {
     nextPingIn = formatUptime(Math.max(0, nextPingMs));
   }
 
+  const currentVersion = deps?.currentVersion;
+  const versionMismatch =
+    currentVersion != null && state.version != null
+      ? state.version !== currentVersion
+      : false;
+
   return {
     running: true,
     pid: state.pid,
@@ -144,6 +155,8 @@ export function getDaemonStatus(deps?: {
     intervalMs: state.intervalMs,
     uptime,
     nextPingIn,
+    versionMismatch,
+    daemonVersion: state.version,
   };
 }
 
@@ -177,15 +190,21 @@ interface DaemonLoopDeps {
   updateState?: (patch: Partial<DaemonState>) => void;
   isWindowActive?: (handle: string) => boolean;
   shouldDeferPing?: (handle: string, configDir: string) => DeferResult;
+  hasUpgraded?: () => boolean;
 }
 
 export async function daemonLoop(
   intervalMs: number,
   options: { quiet?: boolean; bell?: boolean; notify?: boolean },
   deps: DaemonLoopDeps,
-): Promise<void> {
+): Promise<"stop" | "upgrade"> {
   let wakeDelayMs: number | undefined;
   while (!deps.shouldStop()) {
+    if (deps.hasUpgraded?.()) {
+      deps.log("Binary upgraded, exiting for restart...");
+      return "upgrade";
+    }
+
     const allAccounts = deps.listAccounts();
     let accounts = deps.isWindowActive
       ? allAccounts.filter((a) => !deps.isWindowActive!(a.handle))
@@ -256,6 +275,7 @@ export async function daemonLoop(
       wakeDelayMs = undefined;
     }
   }
+  return "stop";
 }
 
 // --- Start ---
@@ -275,6 +295,7 @@ export function startDaemon(
     bell?: boolean;
     notify?: boolean;
     smartSchedule?: boolean;
+    version?: string;
   },
   deps?: Partial<StartDaemonDeps>,
 ): { success: boolean; pid?: number; error?: string } {
@@ -332,6 +353,7 @@ export function startDaemon(
     startedAt: new Date().toISOString(),
     intervalMs,
     configDir,
+    version: options.version,
   });
 
   return { success: true, pid: child.pid };
@@ -460,14 +482,19 @@ export async function runDaemon(
 
   deps.log(`Daemon started. Interval: ${Math.round(intervalMs / 60_000)}m`);
 
+  let exitReason: "stop" | "upgrade" = "stop";
   try {
-    await daemonLoop(intervalMs, options, deps);
+    exitReason = await daemonLoop(intervalMs, options, deps);
   } finally {
     deps.removeSignal("SIGTERM", onSigterm);
     deps.removeSignal("SIGINT", onSigint);
 
     deps.log("Daemon stopping...");
     cleanup();
+  }
+
+  if (exitReason === "upgrade") {
+    deps.exit(75); // EX_TEMPFAIL — triggers service manager restart
   }
 }
 
@@ -515,6 +542,9 @@ export async function runDaemonWithDefaults(
     };
   }
 
+  const binaryPath = realpathSync(process.argv[1]);
+  const startMtimeMs = statSync(binaryPath).mtimeMs;
+
   await runDaemon(intervalMs, options, {
     runPing,
     listAccounts,
@@ -523,6 +553,13 @@ export async function runDaemonWithDefaults(
     log: (msg) => console.log(msg),
     isWindowActive: (handle) => getWindowReset(handle) !== null,
     shouldDeferPing,
+    hasUpgraded: () => {
+      try {
+        return statSync(binaryPath).mtimeMs !== startMtimeMs;
+      } catch {
+        return false;
+      }
+    },
     updateState: (patch) => {
       const current = readDaemonState();
       if (current) writeDaemonState({ ...current, ...patch });

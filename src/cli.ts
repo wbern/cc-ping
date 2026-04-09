@@ -350,6 +350,7 @@ daemon
       bell: opts.bell,
       notify: opts.notify,
       smartSchedule,
+      version: __VERSION__,
     });
     if (!result.success) {
       console.error(result.error);
@@ -392,7 +393,7 @@ daemon
   .action(async (opts) => {
     const { getServiceStatus } = await import("./service.js");
     const svc = getServiceStatus();
-    const status = getDaemonStatus();
+    const status = getDaemonStatus({ currentVersion: __VERSION__ });
     if (opts.json) {
       const serviceInfo = svc.installed
         ? {
@@ -431,6 +432,9 @@ daemon
       return;
     }
     console.log(`Daemon is running (PID: ${status.pid})`);
+    if (status.daemonVersion) {
+      console.log(`  Version: ${status.daemonVersion}`);
+    }
     console.log(`  Started: ${status.startedAt}`);
     console.log(
       `  Interval: ${Math.round((status.intervalMs ?? 0) / 60_000)}m`,
@@ -442,6 +446,14 @@ daemon
     if (svc.installed) {
       const kind = svc.platform === "darwin" ? "launchd" : "systemd";
       console.log(`  System service: installed (${kind})`);
+    }
+    if (status.versionMismatch) {
+      console.log(
+        `  Warning: daemon is running v${status.daemonVersion} but v${__VERSION__} is installed.`,
+      );
+      console.log(
+        "  Restart to pick up the new version: cc-ping daemon stop && cc-ping daemon start",
+      );
     }
     console.log("");
     printAccountTable();
@@ -522,6 +534,7 @@ daemon
         startedAt: new Date().toISOString(),
         intervalMs,
         configDir: resolveConfigDir(),
+        version: __VERSION__,
       });
     }
     await runDaemonWithDefaults(intervalMs, {

@@ -228,6 +228,58 @@ describe("daemon", () => {
       expect(status.uptime).toMatch(/\d+h \d+m \d+s/);
     });
 
+    it("reports version mismatch when daemon version differs from current", () => {
+      writeDaemonState({
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        intervalMs: 300000,
+        configDir,
+        version: "0.0.1",
+      });
+
+      const status = getDaemonStatus({
+        isDaemonProcess: () => true,
+        currentVersion: "1.0.0",
+      });
+      expect(status.running).toBe(true);
+      expect(status.versionMismatch).toBe(true);
+      expect(status.daemonVersion).toBe("0.0.1");
+    });
+
+    it("reports no version mismatch when daemon has no version (pre-upgrade)", () => {
+      writeDaemonState({
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        intervalMs: 300000,
+        configDir,
+      });
+
+      const status = getDaemonStatus({
+        isDaemonProcess: () => true,
+        currentVersion: "1.0.0",
+      });
+      expect(status.running).toBe(true);
+      expect(status.versionMismatch).toBe(false);
+      expect(status.daemonVersion).toBeUndefined();
+    });
+
+    it("does not report version mismatch when versions match", () => {
+      writeDaemonState({
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        intervalMs: 300000,
+        configDir,
+        version: "1.0.0",
+      });
+
+      const status = getDaemonStatus({
+        isDaemonProcess: () => true,
+        currentVersion: "1.0.0",
+      });
+      expect(status.running).toBe(true);
+      expect(status.versionMismatch).toBe(false);
+    });
+
     it("cleans stale PID when process is alive but not cc-ping", () => {
       writeDaemonState({
         pid: process.pid,
@@ -567,6 +619,27 @@ describe("daemon", () => {
       );
     });
 
+    it("exits loop when binary upgrade is detected", async () => {
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => false),
+        log: vi.fn(),
+        hasUpgraded: vi.fn().mockReturnValue(true),
+      };
+
+      const result = await daemonLoop(60000, {}, deps);
+
+      expect(result).toBe("upgrade");
+      expect(deps.log).toHaveBeenCalledWith(
+        expect.stringContaining("upgraded"),
+      );
+      expect(deps.runPing).not.toHaveBeenCalled();
+    });
+
     it("defers accounts when smart scheduling says to", async () => {
       let calls = 0;
       const deps = {
@@ -677,6 +750,26 @@ describe("daemon", () => {
       expect(spawnArgs).toContain("--notify");
       expect(spawnArgs).toContain("--interval-ms");
       expect(spawnArgs).toContain("300000");
+    });
+
+    it("writes version into daemon state", () => {
+      const mockChild = { pid: 9876, unref: vi.fn() };
+      const mockSpawn = vi.fn().mockReturnValue(mockChild);
+      const mockWriteState = vi.fn();
+
+      startDaemon(
+        { version: "2.0.0" },
+        {
+          getDaemonStatus: () => ({ running: false }),
+          spawn: mockSpawn as never,
+          writeDaemonState: mockWriteState,
+          openSync: vi.fn().mockReturnValue(3),
+          closeSync: vi.fn(),
+        },
+      );
+
+      const state = mockWriteState.mock.calls[0][0];
+      expect(state.version).toBe("2.0.0");
     });
 
     it("passes --smart-schedule off when disabled", () => {
@@ -933,6 +1026,37 @@ describe("daemon", () => {
       expect(log).toHaveBeenCalledWith(
         expect.stringContaining("Daemon started"),
       );
+    });
+
+    it("exits with code 75 after cleanup when daemon loop detects upgrade", async () => {
+      const callOrder: string[] = [];
+      const log = vi.fn((msg: string) => {
+        if (msg === "Daemon stopping...") callOrder.push("cleanup");
+      });
+      const exit = vi.fn(() => callOrder.push("exit"));
+      const removeSignal = vi.fn();
+
+      await runDaemon(
+        60000,
+        {},
+        {
+          runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+          listAccounts: vi
+            .fn()
+            .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+          sleep: vi.fn().mockResolvedValue(undefined),
+          shouldStop: () => false,
+          log,
+          onSignal: vi.fn(),
+          removeSignal,
+          exit,
+          hasUpgraded: vi.fn().mockReturnValue(true),
+        },
+      );
+
+      expect(exit).toHaveBeenCalledWith(75);
+      expect(callOrder).toEqual(["cleanup", "exit"]);
+      expect(removeSignal).toHaveBeenCalledTimes(2);
     });
 
     it("cleans up even when daemonLoop throws", async () => {
