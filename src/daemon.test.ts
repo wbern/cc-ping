@@ -566,6 +566,39 @@ describe("daemon", () => {
         "All accounts have active windows, waiting...",
       );
     });
+
+    it("defers accounts when smart scheduling says to", async () => {
+      let calls = 0;
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+        listAccounts: vi.fn().mockReturnValue([
+          { handle: "alice", configDir: "/tmp/alice" },
+          { handle: "bob", configDir: "/tmp/bob" },
+        ]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          calls++;
+          return calls > 1;
+        }),
+        log: vi.fn(),
+        shouldDeferPing: vi.fn((handle: string, _configDir: string) =>
+          handle === "alice"
+            ? { defer: true, deferUntilUtcHour: 8 }
+            : { defer: false },
+        ),
+      };
+
+      await daemonLoop(60000, {}, deps);
+
+      // Only bob should be pinged since alice is deferred
+      expect(deps.runPing).toHaveBeenCalledWith(
+        [{ handle: "bob", configDir: "/tmp/bob" }],
+        expect.any(Object),
+      );
+      expect(deps.log).toHaveBeenCalledWith(
+        expect.stringContaining("Deferring 1 account(s)"),
+      );
+    });
   });
 
   describe("startDaemon", () => {
@@ -644,6 +677,45 @@ describe("daemon", () => {
       expect(spawnArgs).toContain("--notify");
       expect(spawnArgs).toContain("--interval-ms");
       expect(spawnArgs).toContain("300000");
+    });
+
+    it("passes --smart-schedule off when disabled", () => {
+      const mockChild = { pid: 9876, unref: vi.fn() };
+      const mockSpawn = vi.fn().mockReturnValue(mockChild);
+
+      startDaemon(
+        { smartSchedule: false },
+        {
+          getDaemonStatus: () => ({ running: false }),
+          spawn: mockSpawn as never,
+          writeDaemonState: vi.fn(),
+          openSync: vi.fn().mockReturnValue(3),
+          closeSync: vi.fn(),
+        },
+      );
+
+      const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
+      expect(spawnArgs).toContain("--smart-schedule");
+      expect(spawnArgs).toContain("off");
+    });
+
+    it("does not pass --smart-schedule by default", () => {
+      const mockChild = { pid: 9876, unref: vi.fn() };
+      const mockSpawn = vi.fn().mockReturnValue(mockChild);
+
+      startDaemon(
+        {},
+        {
+          getDaemonStatus: () => ({ running: false }),
+          spawn: mockSpawn as never,
+          writeDaemonState: vi.fn(),
+          openSync: vi.fn().mockReturnValue(3),
+          closeSync: vi.fn(),
+        },
+      );
+
+      const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
+      expect(spawnArgs).not.toContain("--smart-schedule");
     });
 
     it("returns error and closes log fd when spawn fails (no pid)", () => {

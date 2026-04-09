@@ -15,6 +15,7 @@ interface ServiceOptions {
   quiet?: boolean;
   bell?: boolean;
   notify?: boolean;
+  smartSchedule?: boolean;
 }
 
 export interface ExecInfo {
@@ -85,6 +86,8 @@ export function generateLaunchdPlist(
   if (options.quiet) programArgs.push("--quiet");
   if (options.bell) programArgs.push("--bell");
   if (options.notify) programArgs.push("--notify");
+  if (options.smartSchedule === false)
+    programArgs.push("--smart-schedule", "off");
 
   const allArgs = [execInfo.executable, ...programArgs];
   const argsXml = allArgs
@@ -148,6 +151,8 @@ export function generateSystemdUnit(
   if (options.quiet) programArgs.push("--quiet");
   if (options.bell) programArgs.push("--bell");
   if (options.notify) programArgs.push("--notify");
+  if (options.smartSchedule === false)
+    programArgs.push("--smart-schedule", "off");
 
   const execStart = [execInfo.executable, ...programArgs]
     .map((a) => (a.includes(" ") ? `"${a}"` : a))

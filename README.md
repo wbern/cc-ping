@@ -37,10 +37,11 @@ npm install -g @wbern/cc-ping   # also works
 
 ## Setup
 
-Discover accounts from `~/.claude-accounts/`, then verify they have valid credentials:
+Discover accounts from `~` (or a custom directory), then verify they have valid credentials:
 
 ```bash
-cc-ping scan              # auto-discover accounts
+cc-ping scan              # auto-discover accounts from ~
+cc-ping scan /path/to/dir # scan a specific directory
 cc-ping check             # verify credentials are valid
 cc-ping list              # show configured accounts
 ```
@@ -98,7 +99,7 @@ Show which account has its quota window resetting soonest — useful for knowing
 
 ### `cc-ping scan`
 
-Auto-discover accounts from `~/.claude-accounts/`. Each subdirectory with a `claude_user.json` is detected as an account. Duplicate identities (same `accountUuid` across directories) are flagged.
+Auto-discover Claude Code accounts. Scans `~` by default, or pass a directory to scan. Each subdirectory containing a `.claude.json` is detected as an account. Duplicate identities (same `accountUuid` across directories) are flagged.
 
 ### `cc-ping check`
 
@@ -141,6 +142,7 @@ cc-ping daemon stop                    # graceful shutdown
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--interval <duration>` | `300m` | Time between ping cycles |
+| `--smart-schedule <on\|off>` | `on` | Time pings based on your usage patterns |
 | `--notify` | `false` | Desktop notification when new windows open |
 | `--bell` | `false` | Terminal bell on failure |
 | `--quiet` | `true` | Suppress per-account output in logs |
@@ -154,6 +156,45 @@ The daemon is smart about what it pings:
 - **Graceful shutdown** — `daemon stop` writes a sentinel file and waits up to 60s for a clean exit before force-killing
 
 Logs are written to `~/.config/cc-ping/daemon.log`.
+
+### Smart scheduling
+
+By default, the daemon analyzes your Claude Code usage history to time pings optimally. The goal: your 5-hour quota window expires right when you're most active, not while you're asleep.
+
+```
+Your typical day:
+
+      12am      6am       12pm      6pm       12am
+        |        |    ________|________  |        |
+        .  .  .  .  . |  coding time  |  .  .  .  .
+                            ^
+                       peak activity
+
+Fixed interval -- ping fires whenever the timer says:
+
+        [======= 5h window =======]
+       12am                       5am
+                                   ^ expires while you sleep
+
+Smart scheduling -- ping timed so window expires at peak:
+
+                      [======= 5h window =======]
+                     8am                        1pm
+                                                 ^ expires while you code!
+```
+
+**How it works:**
+
+1. Reads `<configDir>/history.jsonl` from each account's config directory (Claude Code's prompt timestamps)
+2. Builds an hour-of-day histogram from the last 14 days
+3. Finds the weighted midpoint of your activity
+4. Schedules pings at `midpoint - 5h` so the window expires at your peak
+
+**Defer zone:** When smart scheduling is active, pings that would fire in the 5 hours before the optimal time are deferred. Pings outside this zone proceed normally for continuous coverage.
+
+**Fallback:** If an account has fewer than 7 days of history or a flat usage pattern (no clear peak), smart scheduling is skipped and the fixed interval is used instead.
+
+To disable: `cc-ping daemon start --smart-schedule off`
 
 ### System service (survive reboots)
 

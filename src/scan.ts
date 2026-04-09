@@ -3,18 +3,21 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AccountConfig } from "./types.js";
 
-const ACCOUNTS_DIR = join(homedir(), ".claude-accounts");
+export function scanAccounts(dir?: string): AccountConfig[] {
+  const accountsDir = dir ?? homedir();
+  if (!existsSync(accountsDir)) return [];
 
-export function scanAccounts(): AccountConfig[] {
-  if (!existsSync(ACCOUNTS_DIR)) return [];
-
-  return readdirSync(ACCOUNTS_DIR)
+  return readdirSync(accountsDir)
     .filter((name) => {
-      const full = join(ACCOUNTS_DIR, name);
-      return statSync(full).isDirectory() && !name.startsWith(".");
+      const full = join(accountsDir, name);
+      return (
+        statSync(full).isDirectory() &&
+        !name.startsWith(".") &&
+        existsSync(join(full, ".claude.json"))
+      );
     })
     .map((name) => ({
       handle: name,
-      configDir: join(ACCOUNTS_DIR, name),
+      configDir: join(accountsDir, name),
     }));
 }

@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { resolveConfigDir } from "./paths.js";
+import type { DeferResult } from "./schedule.js";
 import { QUOTA_WINDOW_MS } from "./state.js";
 import type { AccountConfig, DaemonState } from "./types.js";
 
@@ -175,6 +176,7 @@ interface DaemonLoopDeps {
   log: (msg: string) => void;
   updateState?: (patch: Partial<DaemonState>) => void;
   isWindowActive?: (handle: string) => boolean;
+  shouldDeferPing?: (handle: string, configDir: string) => DeferResult;
 }
 
 export async function daemonLoop(
@@ -185,13 +187,28 @@ export async function daemonLoop(
   let wakeDelayMs: number | undefined;
   while (!deps.shouldStop()) {
     const allAccounts = deps.listAccounts();
-    const accounts = deps.isWindowActive
+    let accounts = deps.isWindowActive
       ? allAccounts.filter((a) => !deps.isWindowActive!(a.handle))
       : allAccounts;
     const skipped = allAccounts.length - accounts.length;
 
     if (skipped > 0) {
       deps.log(`Skipping ${skipped} account(s) with active window`);
+    }
+
+    if (deps.shouldDeferPing) {
+      const deferResults = new Map<string, boolean>();
+      for (const a of accounts) {
+        deferResults.set(
+          a.handle,
+          deps.shouldDeferPing(a.handle, a.configDir).defer,
+        );
+      }
+      const deferredCount = [...deferResults.values()].filter(Boolean).length;
+      if (deferredCount > 0) {
+        accounts = accounts.filter((a) => !deferResults.get(a.handle));
+        deps.log(`Deferring ${deferredCount} account(s) (smart scheduling)`);
+      }
     }
 
     if (accounts.length === 0) {
@@ -257,6 +274,7 @@ export function startDaemon(
     quiet?: boolean;
     bell?: boolean;
     notify?: boolean;
+    smartSchedule?: boolean;
   },
   deps?: Partial<StartDaemonDeps>,
 ): { success: boolean; pid?: number; error?: string } {
@@ -293,6 +311,7 @@ export function startDaemon(
   if (options.quiet) args.push("--quiet");
   if (options.bell) args.push("--bell");
   if (options.notify) args.push("--notify");
+  if (options.smartSchedule === false) args.push("--smart-schedule", "off");
 
   const child = _spawn(process.execPath, [process.argv[1], ...args], {
     detached: true,
@@ -455,12 +474,46 @@ export async function runDaemon(
 /* c8 ignore start -- production wiring only */
 export async function runDaemonWithDefaults(
   intervalMs: number,
-  options: { quiet?: boolean; bell?: boolean; notify?: boolean },
+  options: {
+    quiet?: boolean;
+    bell?: boolean;
+    notify?: boolean;
+    smartSchedule?: boolean;
+  },
 ): Promise<void> {
   const stopPath = daemonStopPath();
   const { runPing } = await import("./run-ping.js");
   const { listAccounts } = await import("./config.js");
   const { getWindowReset } = await import("./state.js");
+
+  const smartScheduleEnabled = options.smartSchedule !== false;
+  let shouldDeferPing:
+    | ((handle: string, configDir: string) => DeferResult)
+    | undefined;
+
+  if (smartScheduleEnabled) {
+    const { readAccountSchedule, shouldDefer } = await import("./schedule.js");
+
+    // Log computed schedules at startup for debuggability
+    for (const account of listAccounts()) {
+      const schedule = readAccountSchedule(account.configDir);
+      if (schedule) {
+        console.log(
+          `Smart schedule: ${account.handle} → optimal ping at ${schedule.optimalPingHour}:00 UTC`,
+        );
+      } else {
+        console.log(
+          `Smart schedule: ${account.handle} → insufficient history, using fixed interval`,
+        );
+      }
+    }
+
+    shouldDeferPing = (_handle: string, configDir: string) => {
+      const schedule = readAccountSchedule(configDir);
+      if (!schedule) return { defer: false };
+      return shouldDefer(new Date(), schedule.optimalPingHour);
+    };
+  }
 
   await runDaemon(intervalMs, options, {
     runPing,
@@ -469,6 +522,7 @@ export async function runDaemonWithDefaults(
     shouldStop: () => existsSync(stopPath),
     log: (msg) => console.log(msg),
     isWindowActive: (handle) => getWindowReset(handle) !== null,
+    shouldDeferPing,
     updateState: (patch) => {
       const current = readDaemonState();
       if (current) writeDaemonState({ ...current, ...patch });

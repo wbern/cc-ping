@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, resolve } from "node:path";
 import { Command } from "commander";
 import { checkAccounts } from "./check.js";
 import { generateCompletion } from "./completions.js";
@@ -29,6 +29,7 @@ import { sendNotification } from "./notify.js";
 import { setConfigDir } from "./paths.js";
 import { runPing } from "./run-ping.js";
 import { scanAccounts } from "./scan.js";
+import { parseSmartSchedule } from "./schedule.js";
 import { parseStagger } from "./stagger.js";
 import { getAccountStatuses, printAccountTable } from "./status.js";
 import { suggestAccount } from "./suggest.js";
@@ -130,12 +131,14 @@ program
 
 program
   .command("scan")
-  .description("Auto-discover accounts from ~/.claude-accounts/")
+  .description("Auto-discover Claude Code accounts (scans ~ by default)")
+  .argument("[dir]", "Directory to scan (default: ~)")
   .option("--dry-run", "Show what would be added without saving", false)
-  .action((opts) => {
-    const found = scanAccounts();
+  .action((dir, opts) => {
+    const scanDir = dir ? resolve(dir) : undefined;
+    const found = scanAccounts(scanDir);
     if (found.length === 0) {
-      console.log("No accounts found in ~/.claude-accounts/");
+      console.log(`No accounts found in ${scanDir ?? "~"}`);
       return;
     }
     console.log(`Found ${found.length} account(s):`);
@@ -332,12 +335,21 @@ daemon
   .option("-q, --quiet", "Suppress ping output", false)
   .option("--bell", "Ring terminal bell on ping failure", false)
   .option("--notify", "Send desktop notification on ping failure", false)
+  .option(
+    "--smart-schedule <on|off>",
+    "Time pings based on usage patterns (default: on)",
+  )
   .action(async (opts) => {
+    let smartSchedule: boolean | undefined;
+    if (opts.smartSchedule !== undefined) {
+      smartSchedule = parseSmartSchedule(opts.smartSchedule);
+    }
     const result = startDaemon({
       interval: opts.interval,
       quiet: opts.quiet,
       bell: opts.bell,
       notify: opts.notify,
+      smartSchedule,
     });
     if (!result.success) {
       console.error(result.error);
@@ -445,13 +457,22 @@ daemon
   .option("-q, --quiet", "Suppress ping output", false)
   .option("--bell", "Ring terminal bell on ping failure", false)
   .option("--notify", "Send desktop notification on ping failure", false)
+  .option(
+    "--smart-schedule <on|off>",
+    "Time pings based on usage patterns (default: on)",
+  )
   .action(async (opts) => {
+    let smartSchedule: boolean | undefined;
+    if (opts.smartSchedule !== undefined) {
+      smartSchedule = parseSmartSchedule(opts.smartSchedule);
+    }
     const { installService } = await import("./service.js");
     const result = await installService({
       interval: opts.interval,
       quiet: opts.quiet,
       bell: opts.bell,
       notify: opts.notify,
+      smartSchedule,
     });
     if (!result.success) {
       console.error(result.error);
@@ -482,11 +503,16 @@ daemon
   .option("-q, --quiet", "Suppress ping output", false)
   .option("--bell", "Ring terminal bell on ping failure", false)
   .option("--notify", "Send desktop notification on ping failure", false)
+  .option("--smart-schedule <on|off>", "Smart scheduling (default: on)")
   .action(async (opts) => {
     const intervalMs = Number(opts.intervalMs);
     if (!intervalMs || intervalMs <= 0) {
       console.error("Invalid --interval-ms");
       process.exit(1);
+    }
+    let smartSchedule: boolean | undefined;
+    if (opts.smartSchedule !== undefined) {
+      smartSchedule = parseSmartSchedule(opts.smartSchedule);
     }
     // Write state if not already present (e.g. launched by launchd/systemd)
     if (!readDaemonState()) {
@@ -502,6 +528,7 @@ daemon
       quiet: opts.quiet,
       bell: opts.bell,
       notify: opts.notify,
+      smartSchedule,
     });
   });
 

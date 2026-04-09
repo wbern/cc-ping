@@ -87,6 +87,12 @@ describe("service", () => {
       expect(plist).toContain(`<string>${60 * 60 * 1000}</string>`);
     });
 
+    it("includes --smart-schedule off when disabled", () => {
+      const plist = generateLaunchdPlist({ smartSchedule: false }, execInfo);
+      expect(plist).toContain("<string>--smart-schedule</string>");
+      expect(plist).toContain("<string>off</string>");
+    });
+
     it("includes CC_PING_CONFIG when configDir is provided", () => {
       const plist = generateLaunchdPlist({}, execInfo, "/custom/config");
       expect(plist).toContain("<key>EnvironmentVariables</key>");
@@ -160,6 +166,11 @@ describe("service", () => {
       expect(unit).toContain("--bell");
       expect(unit).toContain("--notify");
       expect(unit).toContain(`--interval-ms ${60 * 60 * 1000}`);
+    });
+
+    it("includes --smart-schedule off when disabled", () => {
+      const unit = generateSystemdUnit({ smartSchedule: false }, execInfo);
+      expect(unit).toContain("--smart-schedule off");
     });
 
     it("includes Environment when configDir is provided", () => {
