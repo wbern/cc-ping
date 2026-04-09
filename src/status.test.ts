@@ -302,7 +302,7 @@ describe("formatStatusLine", () => {
       },
       { censor: true },
     );
-    expect(line).toContain("q*******@g****.com");
+    expect(line).toContain("q·······@g····.com");
     expect(line).not.toContain("qvazzler");
   });
 
@@ -320,22 +320,22 @@ describe("formatStatusLine", () => {
       },
       { censor: true },
     );
-    expect(line).toContain("[duplicate of b*******]");
+    expect(line).toContain("[duplicate of b·······]");
     expect(line).not.toContain("[duplicate of bernting]");
   });
 });
 
 describe("censorHandle", () => {
   it("masks email handles keeping first char and TLD", () => {
-    expect(censorHandle("qvazzler@gmail.com")).toBe("q*******@g****.com");
+    expect(censorHandle("qvazzler@gmail.com")).toBe("q·······@g····.com");
   });
 
   it("masks domain-style handles keeping first char and TLD", () => {
-    expect(censorHandle("bernting.se")).toBe("b*******.se");
+    expect(censorHandle("bernting.se")).toBe("b·······.se");
   });
 
   it("masks short handles", () => {
-    expect(censorHandle("akka.io")).toBe("a***.io");
+    expect(censorHandle("akka.io")).toBe("a···.io");
   });
 
   it("returns single-char handles as-is", () => {

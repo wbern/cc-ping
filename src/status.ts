@@ -49,7 +49,7 @@ export function censorHandle(handle: string): string {
 
 function censorPart(part: string): string {
   if (part.length <= 1) return part;
-  return part[0] + "*".repeat(part.length - 1);
+  return part[0] + "·".repeat(part.length - 1);
 }
 
 function censorDomain(domain: string): string {
