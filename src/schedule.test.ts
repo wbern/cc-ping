@@ -251,6 +251,8 @@ describe("getAccountSchedule", () => {
     const result = getAccountSchedule(lines, now);
     expect(result).not.toBeNull();
     expect(result!.optimalPingHour).toBe(9);
+    expect(result!.peakStart).toBe(12);
+    expect(result!.peakEnd).toBe(17);
   });
 
   it("returns null with fewer than 7 days of data", () => {
@@ -315,6 +317,25 @@ describe("getAccountSchedule", () => {
 
     const result = getAccountSchedule(lines, now);
     expect(result).not.toBeNull();
+  });
+
+  it("ignores data before resetAt when provided", () => {
+    const now = new Date("2026-04-08T12:00:00Z");
+    const baseMidnight = new Date("2026-03-25T00:00:00Z").getTime();
+
+    // Generate 10 days of activity at hours 9-17
+    const lines: string[] = [];
+    for (let day = 0; day < 10; day++) {
+      for (let hour = 9; hour <= 17; hour++) {
+        const ts =
+          baseMidnight + day * 24 * 60 * 60 * 1000 + hour * 60 * 60 * 1000;
+        lines.push(JSON.stringify({ timestamp: ts }));
+      }
+    }
+
+    // Reset at April 5 — only 3 days remain, below MIN_DAYS threshold
+    const resetAt = new Date("2026-04-05T00:00:00Z");
+    expect(getAccountSchedule(lines, now, resetAt)).toBeNull();
   });
 
   it("filters out timestamps older than 14 days", () => {

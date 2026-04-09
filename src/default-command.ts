@@ -1,11 +1,12 @@
 import { listAccounts } from "./config.js";
 import { findDuplicates } from "./identity.js";
+import type { DeferInfo } from "./status.js";
 import { formatStatusLine, getAccountStatuses } from "./status.js";
 
 export function showDefault(
   log: (msg: string) => void = console.log,
   now: Date = new Date(),
-  deferredHandles?: Map<string, number>,
+  deferredHandles?: Map<string, DeferInfo>,
   options?: { censor?: boolean },
 ): void {
   const accounts = listAccounts();

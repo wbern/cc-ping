@@ -606,7 +606,14 @@ export async function runDaemonWithDefaults(
 
     // Log computed schedules at startup for debuggability
     for (const account of listAccounts()) {
-      const schedule = readAccountSchedule(account.configDir);
+      const resetAt = account.scheduleResetAt
+        ? new Date(account.scheduleResetAt)
+        : undefined;
+      const schedule = readAccountSchedule(
+        account.configDir,
+        new Date(),
+        resetAt,
+      );
       if (schedule) {
         console.log(
           `Smart schedule: ${account.handle} → optimal ping at ${schedule.optimalPingHour}:00 UTC`,
@@ -618,8 +625,13 @@ export async function runDaemonWithDefaults(
       }
     }
 
-    shouldDeferPing = (_handle: string, configDir: string) => {
-      const schedule = readAccountSchedule(configDir);
+    shouldDeferPing = (handle: string, configDir: string) => {
+      const accounts = listAccounts();
+      const account = accounts.find((a) => a.handle === handle);
+      const resetAt = account?.scheduleResetAt
+        ? new Date(account.scheduleResetAt)
+        : undefined;
+      const schedule = readAccountSchedule(configDir, new Date(), resetAt);
       if (!schedule) return { defer: false };
       return shouldDefer(new Date(), schedule.optimalPingHour);
     };

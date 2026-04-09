@@ -12,8 +12,14 @@ vi.mock("node:os", async () => {
 });
 
 // Dynamic import after mocks
-const { loadConfig, saveConfig, addAccount, removeAccount, listAccounts } =
-  await import("./config.js");
+const {
+  loadConfig,
+  saveConfig,
+  addAccount,
+  removeAccount,
+  listAccounts,
+  resetSchedule,
+} = await import("./config.js");
 
 describe("config", () => {
   beforeEach(() => {
@@ -94,5 +100,33 @@ describe("config", () => {
     const accounts = listAccounts();
     expect(accounts).toHaveLength(1);
     expect(accounts[0].group).toBe("personal");
+  });
+
+  it("sets scheduleResetAt for a specific account", () => {
+    addAccount("acct1", "/path1");
+    addAccount("acct2", "/path2");
+    const now = new Date("2026-04-09T12:00:00.000Z");
+    resetSchedule("acct1", now);
+    const accounts = listAccounts();
+    expect(accounts[0].scheduleResetAt).toBe("2026-04-09T12:00:00.000Z");
+    expect(accounts[1].scheduleResetAt).toBeUndefined();
+  });
+
+  it("sets scheduleResetAt for all accounts when no handle given", () => {
+    addAccount("acct1", "/path1");
+    addAccount("acct2", "/path2");
+    const now = new Date("2026-04-09T12:00:00.000Z");
+    resetSchedule(undefined, now);
+    const accounts = listAccounts();
+    expect(accounts[0].scheduleResetAt).toBe("2026-04-09T12:00:00.000Z");
+    expect(accounts[1].scheduleResetAt).toBe("2026-04-09T12:00:00.000Z");
+  });
+
+  it("returns false when resetting all with no accounts configured", () => {
+    expect(resetSchedule()).toBe(false);
+  });
+
+  it("returns false when resetting non-existent account", () => {
+    expect(resetSchedule("nope")).toBe(false);
   });
 });

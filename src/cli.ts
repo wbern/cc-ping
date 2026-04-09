@@ -7,6 +7,7 @@ import {
   addAccount,
   listAccounts,
   removeAccount,
+  resetSchedule,
   saveConfig,
 } from "./config.js";
 import {
@@ -36,18 +37,26 @@ import {
   shouldDefer,
 } from "./schedule.js";
 import { parseStagger } from "./stagger.js";
+import type { DeferInfo } from "./status.js";
 import { getAccountStatuses, printAccountTable } from "./status.js";
 import { suggestAccount } from "./suggest.js";
 
 declare const __VERSION__: string;
 
-function getDeferredHandles(): Map<string, number> {
-  const deferred = new Map<string, number>();
+function getDeferredHandles(): Map<string, DeferInfo> {
+  const deferred = new Map<string, DeferInfo>();
   const now = new Date();
   for (const account of listAccounts()) {
-    const schedule = readAccountSchedule(account.configDir);
+    const resetAt = account.scheduleResetAt
+      ? new Date(account.scheduleResetAt)
+      : undefined;
+    const schedule = readAccountSchedule(account.configDir, now, resetAt);
     if (schedule && shouldDefer(now, schedule.optimalPingHour).defer) {
-      deferred.set(account.handle, schedule.optimalPingHour);
+      deferred.set(account.handle, {
+        optimalPingHour: schedule.optimalPingHour,
+        peakStart: schedule.peakStart,
+        peakEnd: schedule.peakEnd,
+      });
     }
   }
   return deferred;
@@ -587,6 +596,32 @@ daemon
       smartSchedule,
       autoUpdate: opts.autoUpdate,
     });
+  });
+
+const schedule = program
+  .command("schedule")
+  .description("Manage smart scheduling");
+
+schedule
+  .command("reset")
+  .description("Reset smart scheduling data to recompute optimal ping times")
+  .argument("[handle]", "Specific account handle (default: all accounts)")
+  .action((handle?: string) => {
+    if (resetSchedule(handle)) {
+      if (handle) {
+        console.log(`Schedule reset for: ${handle}`);
+      } else {
+        console.log("Schedule reset for all accounts");
+      }
+    } else {
+      if (handle) {
+        console.error(`Account not found: ${handle}`);
+        process.exit(1);
+      } else {
+        console.error("No accounts configured");
+        process.exit(1);
+      }
+    }
   });
 
 program.parse();

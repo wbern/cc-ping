@@ -101,10 +101,13 @@ describe("getAccountStatuses", () => {
     recordPing("deferred-acct", pingTime);
     const now = new Date("2025-01-01T06:00:00.000Z"); // window expired
     const accounts = [{ handle: "deferred-acct", configDir: "/tmp/deferred" }];
-    const deferred = new Map([["deferred-acct", 9]]);
+    const deferred = new Map([
+      ["deferred-acct", { optimalPingHour: 9, peakStart: 12, peakEnd: 17 }],
+    ]);
     const statuses = getAccountStatuses(accounts, now, undefined, deferred);
     expect(statuses[0].windowStatus).toBe("deferred");
     expect(statuses[0].deferUntilUtcHour).toBe(9);
+    expect(statuses[0].peakWindowUtc).toBe("12-17");
   });
 
   it("returns empty array for no accounts", () => {
@@ -232,6 +235,22 @@ describe("formatStatusLine", () => {
     expect(line).toContain("eve");
     expect(line).toContain("deferred");
     expect(line).toContain("scheduled ping at 9:00 UTC");
+  });
+
+  it("shows peak activity window when available", () => {
+    const line = formatStatusLine({
+      handle: "eve",
+      configDir: "/tmp/eve",
+      lastPing: "2025-01-01T00:00:00.000Z",
+      windowStatus: "deferred",
+      timeUntilReset: null,
+      lastCostUsd: null,
+      lastTokens: null,
+      deferUntilUtcHour: 16,
+      peakWindowUtc: "19-0",
+    });
+    expect(line).toContain("scheduled ping at 16:00 UTC");
+    expect(line).toContain("peak: 19-0 UTC");
   });
 
   it("formats a deferred account without scheduled time when hour is undefined", () => {
@@ -416,7 +435,7 @@ describe("printAccountTable", () => {
     printAccountTable(
       (msg: string) => lines.push(msg),
       now,
-      new Map([["alice", 10]]),
+      new Map([["alice", { optimalPingHour: 10, peakStart: 13, peakEnd: 18 }]]),
     );
     expect(lines[0]).toContain("deferred");
   });

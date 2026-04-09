@@ -55,3 +55,22 @@ export function removeAccount(handle: string): boolean {
 export function listAccounts(): AccountConfig[] {
   return loadConfig().accounts;
 }
+
+export function resetSchedule(
+  handle?: string,
+  now: Date = new Date(),
+): boolean {
+  const config = loadConfig();
+  if (handle) {
+    const account = config.accounts.find((a) => a.handle === handle);
+    if (!account) return false;
+    account.scheduleResetAt = now.toISOString();
+  } else {
+    if (config.accounts.length === 0) return false;
+    for (const account of config.accounts) {
+      account.scheduleResetAt = now.toISOString();
+    }
+  }
+  saveConfig(config);
+  return true;
+}

@@ -2,6 +2,7 @@ export interface AccountConfig {
   handle: string;
   configDir: string;
   group?: string;
+  scheduleResetAt?: string;
 }
 
 export interface ClaudeJsonResponse {

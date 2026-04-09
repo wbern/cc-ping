@@ -10,6 +10,12 @@ import {
 } from "./state.js";
 import type { AccountConfig } from "./types.js";
 
+export interface DeferInfo {
+  optimalPingHour: number;
+  peakStart: number;
+  peakEnd: number;
+}
+
 interface AccountStatus {
   handle: string;
   configDir: string;
@@ -20,6 +26,7 @@ interface AccountStatus {
   lastTokens: number | null;
   duplicateOf?: string;
   deferUntilUtcHour?: number;
+  peakWindowUtc?: string;
 }
 
 function colorizeStatus(windowStatus: AccountStatus["windowStatus"]): string {
@@ -82,7 +89,12 @@ export function formatStatusLine(
   }
 
   if (status.deferUntilUtcHour !== undefined) {
-    lines.push(`    - scheduled ping at ${status.deferUntilUtcHour}:00 UTC`);
+    const peak = status.peakWindowUtc
+      ? ` (peak: ${status.peakWindowUtc} UTC)`
+      : "";
+    lines.push(
+      `    - scheduled ping at ${status.deferUntilUtcHour}:00 UTC${peak}`,
+    );
   }
 
   return lines.join("\n");
@@ -92,7 +104,7 @@ export function getAccountStatuses(
   accounts: AccountConfig[],
   now: Date = new Date(),
   duplicates?: Map<string, DuplicateGroup>,
-  deferredHandles?: Map<string, number>,
+  deferredHandles?: Map<string, DeferInfo>,
 ): AccountStatus[] {
   // Build handle -> other handles lookup
   const dupLookup = new Map<string, string>();
@@ -126,9 +138,13 @@ export function getAccountStatuses(
       };
     }
     const window = getWindowReset(account.handle, now);
-    const isDeferred = !window && deferredHandles?.has(account.handle);
+    const deferInfo = deferredHandles?.get(account.handle);
+    const isDeferred = !window && deferInfo !== undefined;
     const deferUntilUtcHour = isDeferred
-      ? deferredHandles?.get(account.handle)
+      ? deferInfo.optimalPingHour
+      : undefined;
+    const peakWindowUtc = isDeferred
+      ? `${deferInfo.peakStart}-${deferInfo.peakEnd}`
       : undefined;
     return {
       handle: account.handle,
@@ -144,6 +160,7 @@ export function getAccountStatuses(
       lastTokens,
       duplicateOf,
       deferUntilUtcHour,
+      peakWindowUtc,
     };
   });
 }
@@ -151,7 +168,7 @@ export function getAccountStatuses(
 export function printAccountTable(
   log: (msg: string) => void = console.log,
   now: Date = new Date(),
-  deferredHandles?: Map<string, number>,
+  deferredHandles?: Map<string, DeferInfo>,
   options?: { censor?: boolean },
 ): void {
   const accounts = listAccounts();

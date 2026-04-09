@@ -65,14 +65,20 @@ const HISTORY_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
 interface AccountSchedule {
   optimalPingHour: number;
+  peakStart: number;
+  peakEnd: number;
   histogram: number[];
 }
 
 export function getAccountSchedule(
   historyLines: string[],
   now: Date = new Date(),
+  resetAt?: Date,
 ): AccountSchedule | null {
-  const cutoff = now.getTime() - HISTORY_WINDOW_MS;
+  const cutoff = Math.max(
+    now.getTime() - HISTORY_WINDOW_MS,
+    resetAt?.getTime() ?? 0,
+  );
   const timestamps: Date[] = [];
   const daysSeen = new Set<string>();
 
@@ -103,18 +109,23 @@ export function getAccountSchedule(
   /* c8 ignore next -- defensive: flat histogram already caught above */
   if (optimalPingHour === -1) return null;
 
-  return { optimalPingHour, histogram };
+  const peakStart =
+    (optimalPingHour + Math.floor(QUOTA_WINDOW_HOURS / 2) + 1) % 24;
+  const peakEnd = (peakStart + QUOTA_WINDOW_HOURS) % 24;
+
+  return { optimalPingHour, peakStart, peakEnd, histogram };
 }
 
 export function readAccountSchedule(
   configDir: string,
   now: Date = new Date(),
+  resetAt?: Date,
 ): AccountSchedule | null {
   const historyPath = join(configDir, "history.jsonl");
   if (!existsSync(historyPath)) return null;
   const content = readFileSync(historyPath, "utf-8");
   const lines = content.split("\n").filter((l) => l.trim());
-  return getAccountSchedule(lines, now);
+  return getAccountSchedule(lines, now, resetAt);
 }
 
 const TRUTHY = new Set(["true", "on", "1"]);
