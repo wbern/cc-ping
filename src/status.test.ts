@@ -29,6 +29,7 @@ import type { DeferInfo } from "./status.js";
 
 const {
   getAccountStatuses,
+  formatLocalHour,
   formatStatusLine,
   formatTimeAgo,
   printAccountTable,
@@ -270,9 +271,11 @@ describe("formatStatusLine", () => {
     );
     expect(line).toContain("window active from recent Claude Code usage");
     expect(line).toContain("next ping in 3h");
+    expect(line).toContain("peak:");
+    expect(line).not.toContain("UTC");
   });
 
-  it("formats a deferred account with scheduled ping time", () => {
+  it("formats a deferred account with scheduled ping time (no now)", () => {
     const line = formatStatusLine({
       handle: "eve",
       configDir: "/tmp/eve",
@@ -286,6 +289,25 @@ describe("formatStatusLine", () => {
     expect(line).toContain("eve");
     expect(line).toContain("deferred");
     expect(line).toContain("next ping at 9:00 UTC");
+  });
+
+  it("shows relative next ping without peak when now is provided", () => {
+    const line = formatStatusLine(
+      {
+        handle: "eve",
+        configDir: "/tmp/eve",
+        lastPing: "2025-01-01T00:00:00.000Z",
+        windowStatus: "deferred",
+        timeUntilReset: null,
+        lastCostUsd: null,
+        lastTokens: null,
+        deferUntilUtcHour: 9,
+      },
+      { now: new Date("2025-01-01T06:00:00.000Z") },
+    );
+    expect(line).toContain("next ping in 3h");
+    expect(line).not.toContain("peak");
+    expect(line).not.toContain("UTC");
   });
 
   it("shows peak activity window when available", () => {
@@ -455,6 +477,47 @@ describe("formatTimeAgo", () => {
   it("falls back to date string for 7+ days", () => {
     const result = formatTimeAgo(base, new Date("2025-01-10T12:00:00.000Z"));
     expect(result).toBe("2025-01-01 12:00:00Z");
+  });
+});
+
+describe("formatLocalHour", () => {
+  const ref = new Date("2025-01-01T12:00:00.000Z");
+
+  it("converts UTC hours to local AM/PM format", () => {
+    const d = new Date(ref);
+    d.setUTCHours(17, 0, 0, 0);
+    const h = d.getHours();
+    const expected =
+      h === 0
+        ? "12 AM"
+        : h === 12
+          ? "12 PM"
+          : h > 12
+            ? `${h - 12} PM`
+            : `${h} AM`;
+    expect(formatLocalHour(17, ref)).toBe(expected);
+  });
+
+  it("returns 12 AM when UTC hour maps to local midnight", () => {
+    // Find the UTC hour that maps to local midnight
+    const offset = ref.getTimezoneOffset(); // minutes ahead of UTC (negative = east)
+    const midnightUtc = ((0 + offset / 60 + 24) % 24) | 0;
+    expect(formatLocalHour(midnightUtc, ref)).toBe("12 AM");
+  });
+
+  it("returns 12 PM when UTC hour maps to local noon", () => {
+    const offset = ref.getTimezoneOffset();
+    const noonUtc = ((12 + offset / 60 + 24) % 24) | 0;
+    expect(formatLocalHour(noonUtc, ref)).toBe("12 PM");
+  });
+
+  it("covers both AM and PM branches", () => {
+    // Find UTC hours that map to local 3 AM and 3 PM
+    const offset = ref.getTimezoneOffset();
+    const threeAmUtc = ((3 + offset / 60 + 24) % 24) | 0;
+    const threePmUtc = ((15 + offset / 60 + 24) % 24) | 0;
+    expect(formatLocalHour(threeAmUtc, ref)).toBe("3 AM");
+    expect(formatLocalHour(threePmUtc, ref)).toBe("3 PM");
   });
 });
 

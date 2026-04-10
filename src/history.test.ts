@@ -101,7 +101,7 @@ describe("appendHistoryEntry", () => {
 });
 
 describe("formatHistoryEntry", () => {
-  it("formats a successful entry", () => {
+  it("formats a successful entry with raw timestamp by default", () => {
     const line = formatHistoryEntry({
       timestamp: "2025-01-01T00:00:00.000Z",
       handle: "alice",
@@ -112,6 +112,20 @@ describe("formatHistoryEntry", () => {
     expect(line).toContain("ok");
     expect(line).toContain("150ms");
     expect(line).toContain("2025-01-01");
+  });
+
+  it("shows relative time when now is provided", () => {
+    const line = formatHistoryEntry(
+      {
+        timestamp: "2025-01-01T00:00:00.000Z",
+        handle: "alice",
+        success: true,
+        durationMs: 150,
+      },
+      new Date("2025-01-01T02:30:00.000Z"),
+    );
+    expect(line).toContain("2h 30m ago");
+    expect(line).not.toContain("2025-01-01");
   });
 
   it("formats a failed entry with error", () => {

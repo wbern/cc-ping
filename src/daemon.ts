@@ -609,9 +609,8 @@ export async function runDaemonWithDefaults(
   const { runPing } = await import("./run-ping.js");
   const { listAccounts } = await import("./config.js");
   const { getWindowReset } = await import("./state.js");
-  const { checkRecentActivity, readAccountSchedule } = await import(
-    "./schedule.js"
-  );
+  const { checkRecentActivity, readAccountSchedule, shouldDefer } =
+    await import("./schedule.js");
 
   const smartScheduleEnabled = options.smartSchedule !== false;
   let shouldDeferPing:
@@ -619,8 +618,6 @@ export async function runDaemonWithDefaults(
     | undefined;
 
   if (smartScheduleEnabled) {
-    const { shouldDefer } = await import("./schedule.js");
-
     // Log computed schedules at startup for debuggability
     for (const account of listAccounts()) {
       const resetAt = account.scheduleResetAt

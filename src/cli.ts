@@ -39,7 +39,11 @@ import {
 } from "./schedule.js";
 import { parseStagger } from "./stagger.js";
 import type { DeferInfo } from "./status.js";
-import { getAccountStatuses, printAccountTable } from "./status.js";
+import {
+  formatTimeAgo,
+  getAccountStatuses,
+  printAccountTable,
+} from "./status.js";
 import { suggestAccount } from "./suggest.js";
 
 declare const __VERSION__: string;
@@ -364,8 +368,9 @@ program
       console.log(JSON.stringify(entries, null, 2));
       return;
     }
+    const now = new Date();
     for (const entry of entries) {
-      console.log(formatHistoryEntry(entry));
+      console.log(formatHistoryEntry(entry, now));
     }
   });
 
@@ -525,7 +530,9 @@ daemon
     if (status.daemonVersion) {
       console.log(`  Version: ${status.daemonVersion}`);
     }
-    console.log(`  Started: ${status.startedAt}`);
+    console.log(
+      `  Started: ${status.startedAt ? formatTimeAgo(status.startedAt, new Date()) : "unknown"}`,
+    );
     console.log(
       `  Interval: ${Math.round((status.intervalMs ?? 0) / 60_000)}m`,
     );

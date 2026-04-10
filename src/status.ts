@@ -77,6 +77,15 @@ function censorDomain(domain: string): string {
   return censorPart(name) + tld;
 }
 
+export function formatLocalHour(utcHour: number, referenceDate: Date): string {
+  const d = new Date(referenceDate);
+  d.setUTCHours(utcHour, 0, 0, 0);
+  const h = d.getHours();
+  if (h === 0) return "12 AM";
+  if (h === 12) return "12 PM";
+  return h > 12 ? `${h - 12} PM` : `${h} AM`;
+}
+
 export function formatTimeAgo(isoString: string, now: Date): string {
   const ms = now.getTime() - new Date(isoString).getTime();
   if (ms < 60_000) return "just now";
@@ -126,7 +135,13 @@ export function formatStatusLine(
   if (status.deferUntilUtcHour !== undefined) {
     if (options?.now) {
       const ms = msUntilUtcHour(status.deferUntilUtcHour, options.now);
-      lines.push(`    - next ping in ${formatTimeRemaining(ms)}`);
+      const peak = status.peakWindowUtc
+        ? (() => {
+            const [s, e] = status.peakWindowUtc.split("-").map(Number);
+            return ` (peak: ${formatLocalHour(s, options.now!)} – ${formatLocalHour(e, options.now!)})`;
+          })()
+        : "";
+      lines.push(`    - next ping in ${formatTimeRemaining(ms)}${peak}`);
     } else {
       const peak = status.peakWindowUtc
         ? ` (peak: ${status.peakWindowUtc} UTC)`

@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveConfigDir } from "./paths.js";
+import { formatTimeAgo } from "./status.js";
 
 interface HistoryEntry {
   timestamp: string;
@@ -20,10 +21,11 @@ export function appendHistoryEntry(entry: HistoryEntry): void {
   appendFileSync(historyFile(), `${JSON.stringify(entry)}\n`);
 }
 
-export function formatHistoryEntry(entry: HistoryEntry): string {
+export function formatHistoryEntry(entry: HistoryEntry, now?: Date): string {
   const status = entry.success ? "ok" : "FAIL";
   const error = entry.error ? ` (${entry.error})` : "";
-  return `  ${entry.timestamp}  ${entry.handle}: ${status} ${entry.durationMs}ms${error}`;
+  const time = now ? formatTimeAgo(entry.timestamp, now) : entry.timestamp;
+  return `  ${time}  ${entry.handle}: ${status} ${entry.durationMs}ms${error}`;
 }
 
 export function readHistory(limit?: number): HistoryEntry[] {
