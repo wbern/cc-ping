@@ -755,6 +755,122 @@ describe("daemon", () => {
         "All accounts deferred (smart scheduling), waiting...",
       );
     });
+    it("shortens sleep to next optimal hour when it falls within the interval", async () => {
+      let stopCalls = 0;
+      const sleepFn = vi.fn().mockResolvedValue(undefined);
+
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: sleepFn,
+        shouldStop: vi.fn(() => {
+          stopCalls++;
+          return stopCalls > 2;
+        }),
+        log: vi.fn(),
+        getOptimalHour: vi.fn().mockReturnValue(10), // 10 UTC
+        now: () => new Date("2026-04-09T08:00:00Z"), // 8 UTC → 2h to optimal
+      };
+
+      await daemonLoop(300 * 60_000, {}, deps); // 5h interval
+
+      const sleepMs = sleepFn.mock.calls[0][0];
+      // Should sleep ~2h (until 10 UTC), not full 5h
+      expect(sleepMs).toBeGreaterThanOrEqual(2 * 60 * 60_000 - 1000);
+      expect(sleepMs).toBeLessThanOrEqual(2 * 60 * 60_000 + 1000);
+    });
+
+    it("does not shorten sleep when optimal hour is beyond the interval", async () => {
+      let stopCalls = 0;
+      const sleepFn = vi.fn().mockResolvedValue(undefined);
+
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: sleepFn,
+        shouldStop: vi.fn(() => {
+          stopCalls++;
+          return stopCalls > 2;
+        }),
+        log: vi.fn(),
+        getOptimalHour: vi.fn().mockReturnValue(20), // 20 UTC
+        now: () => new Date("2026-04-09T08:00:00Z"), // 8 UTC → 12h to optimal > 5h interval
+      };
+
+      await daemonLoop(300 * 60_000, {}, deps); // 5h interval
+
+      const sleepMs = sleepFn.mock.calls[0][0];
+      expect(sleepMs).toBe(300 * 60_000); // full 5h
+    });
+
+    it("uses shorter of deferred hour and optimal hour for sleep", async () => {
+      let stopCalls = 0;
+      const sleepFn = vi.fn().mockResolvedValue(undefined);
+
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+        listAccounts: vi.fn().mockReturnValue([
+          { handle: "alice", configDir: "/tmp/alice" },
+          { handle: "bob", configDir: "/tmp/bob" },
+        ]),
+        sleep: sleepFn,
+        shouldStop: vi.fn(() => {
+          stopCalls++;
+          return stopCalls > 2;
+        }),
+        log: vi.fn(),
+        shouldDeferPing: vi.fn((handle: string) =>
+          handle === "alice"
+            ? { defer: true, deferUntilUtcHour: 11 } // 3h away
+            : { defer: false },
+        ),
+        getOptimalHour: vi.fn(
+          (handle: string) => (handle === "bob" ? 9 : undefined), // bob at 9 UTC = 1h away (shorter)
+        ),
+        now: () => new Date("2026-04-09T08:00:00Z"),
+      };
+
+      await daemonLoop(300 * 60_000, {}, deps);
+
+      const sleepMs = sleepFn.mock.calls[0][0];
+      // Should sleep ~1h (bob's optimal at 9), not ~3h (alice's deferred at 11)
+      expect(sleepMs).toBeGreaterThanOrEqual(1 * 60 * 60_000 - 1000);
+      expect(sleepMs).toBeLessThanOrEqual(1 * 60 * 60_000 + 1000);
+    });
+
+    it("picks the soonest optimal hour across multiple accounts", async () => {
+      let stopCalls = 0;
+      const sleepFn = vi.fn().mockResolvedValue(undefined);
+
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+        listAccounts: vi.fn().mockReturnValue([
+          { handle: "alice", configDir: "/tmp/alice" },
+          { handle: "bob", configDir: "/tmp/bob" },
+        ]),
+        sleep: sleepFn,
+        shouldStop: vi.fn(() => {
+          stopCalls++;
+          return stopCalls > 2;
+        }),
+        log: vi.fn(),
+        getOptimalHour: vi.fn((handle: string) =>
+          handle === "alice" ? 12 : 10,
+        ), // bob at 10 UTC is soonest
+        now: () => new Date("2026-04-09T08:00:00Z"), // 8 UTC
+      };
+
+      await daemonLoop(300 * 60_000, {}, deps);
+
+      const sleepMs = sleepFn.mock.calls[0][0];
+      // Should sleep ~2h (until bob's 10 UTC), not 4h (alice's 12 UTC)
+      expect(sleepMs).toBeGreaterThanOrEqual(2 * 60 * 60_000 - 1000);
+      expect(sleepMs).toBeLessThanOrEqual(2 * 60 * 60_000 + 1000);
+    });
   });
 
   describe("startDaemon", () => {

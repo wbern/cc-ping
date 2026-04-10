@@ -27,18 +27,27 @@ interface AccountStatus {
   duplicateOf?: string;
   deferUntilUtcHour?: number;
   peakWindowUtc?: string;
+  deferReason?: string;
 }
 
+const STATUS_LABELS: Record<AccountStatus["windowStatus"], string> = {
+  active: "window active",
+  "needs ping": "needs ping",
+  deferred: "deferred",
+  unknown: "unknown",
+};
+
 function colorizeStatus(windowStatus: AccountStatus["windowStatus"]): string {
+  const label = STATUS_LABELS[windowStatus];
   switch (windowStatus) {
     case "active":
-      return green(windowStatus);
+      return green(label);
     case "needs ping":
-      return red(windowStatus);
+      return red(label);
     case "deferred":
-      return blue(windowStatus);
+      return blue(label);
     default:
-      return yellow(windowStatus);
+      return yellow(label);
   }
 }
 
@@ -88,13 +97,14 @@ export function formatStatusLine(
     lines.push(`    - resets in ${status.timeUntilReset}`);
   }
 
+  if (status.deferReason) {
+    lines.push(`    - ${status.deferReason}`);
+  }
   if (status.deferUntilUtcHour !== undefined) {
     const peak = status.peakWindowUtc
       ? ` (peak: ${status.peakWindowUtc} UTC)`
       : "";
-    lines.push(
-      `    - scheduled ping at ${status.deferUntilUtcHour}:00 UTC${peak}`,
-    );
+    lines.push(`    - next ping at ${status.deferUntilUtcHour}:00 UTC${peak}`);
   }
 
   return lines.join("\n");
@@ -105,6 +115,7 @@ export function getAccountStatuses(
   now: Date = new Date(),
   duplicates?: Map<string, DuplicateGroup>,
   deferredHandles?: Map<string, DeferInfo>,
+  coveredHandles?: Map<string, DeferInfo | null>,
 ): AccountStatus[] {
   // Build handle -> other handles lookup
   const dupLookup = new Map<string, string>();
@@ -140,11 +151,21 @@ export function getAccountStatuses(
     const window = getWindowReset(account.handle, now);
     const deferInfo = deferredHandles?.get(account.handle);
     const isDeferred = !window && deferInfo !== undefined;
+    const isCovered =
+      !window && !isDeferred && coveredHandles?.has(account.handle);
+    const coveredInfo = isCovered
+      ? coveredHandles?.get(account.handle)
+      : undefined;
     const deferUntilUtcHour = isDeferred
       ? deferInfo.optimalPingHour
-      : undefined;
+      : coveredInfo?.optimalPingHour;
     const peakWindowUtc = isDeferred
       ? `${deferInfo.peakStart}-${deferInfo.peakEnd}`
+      : coveredInfo
+        ? `${coveredInfo.peakStart}-${coveredInfo.peakEnd}`
+        : undefined;
+    const deferReason = isCovered
+      ? "window active from recent Claude Code usage"
       : undefined;
     return {
       handle: account.handle,
@@ -152,7 +173,7 @@ export function getAccountStatuses(
       lastPing: lastPing.toISOString(),
       windowStatus: window
         ? ("active" as const)
-        : isDeferred
+        : isDeferred || isCovered
           ? ("deferred" as const)
           : ("needs ping" as const),
       timeUntilReset: window ? formatTimeRemaining(window.remainingMs) : null,
@@ -161,6 +182,7 @@ export function getAccountStatuses(
       duplicateOf,
       deferUntilUtcHour,
       peakWindowUtc,
+      deferReason,
     };
   });
 }
@@ -170,6 +192,7 @@ export function printAccountTable(
   now: Date = new Date(),
   deferredHandles?: Map<string, DeferInfo>,
   options?: { censor?: boolean },
+  coveredHandles?: Map<string, DeferInfo | null>,
 ): void {
   const accounts = listAccounts();
   if (accounts.length === 0) {
@@ -177,7 +200,13 @@ export function printAccountTable(
     return;
   }
   const dupes = findDuplicates(accounts);
-  const statuses = getAccountStatuses(accounts, now, dupes, deferredHandles);
+  const statuses = getAccountStatuses(
+    accounts,
+    now,
+    dupes,
+    deferredHandles,
+    coveredHandles,
+  );
   for (const s of statuses) {
     log(formatStatusLine(s, options));
   }

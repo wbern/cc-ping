@@ -94,6 +94,26 @@ describe("showDefault", () => {
     expect(output).toContain("Ping accounts that need it");
   });
 
+  it("does not suggest ping when account is covered by recent activity", () => {
+    vi.mocked(listAccounts).mockReturnValue([
+      { handle: "alice", configDir: "/tmp/alice" },
+    ]);
+    recordPing("alice", new Date("2025-01-01T00:00:00.000Z"));
+    const now = new Date("2025-01-01T06:00:00.000Z"); // window expired
+    const lines: string[] = [];
+    showDefault(
+      (msg) => lines.push(msg),
+      now,
+      undefined,
+      undefined,
+      new Map([["alice", null]]),
+    );
+    const output = lines.join("\n");
+    expect(output).toContain("deferred");
+    expect(output).toContain("window active from recent Claude Code usage");
+    expect(output).not.toContain("Suggested next steps");
+  });
+
   it("uses console.log by default", () => {
     vi.mocked(listAccounts).mockReturnValue([
       { handle: "alice", configDir: "/tmp/alice" },

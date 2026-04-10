@@ -211,6 +211,7 @@ interface DaemonLoopDeps {
   updateState?: (patch: Partial<DaemonState>) => void;
   isWindowActive?: (handle: string, configDir: string) => boolean;
   shouldDeferPing?: (handle: string, configDir: string) => DeferResult;
+  getOptimalHour?: (handle: string, configDir: string) => number | undefined;
   hasUpgraded?: () => boolean;
   now?: () => Date;
 }
@@ -310,10 +311,23 @@ export async function daemonLoop(
         sleepMs = msUntilDefer;
       }
     }
+    if (deps.getOptimalHour) {
+      /* c8 ignore next -- production default */
+      const now = deps.now?.() ?? new Date();
+      for (const a of allAccounts) {
+        const hour = deps.getOptimalHour(a.handle, a.configDir);
+        if (hour !== undefined) {
+          const msUntil = msUntilUtcHour(hour, now);
+          if (msUntil > 0 && msUntil < sleepMs) {
+            sleepMs = msUntil;
+          }
+        }
+      }
+    }
     deps.log(`Sleeping ${Math.round(sleepMs / 60_000)}m until next ping...`);
     const sleepStart = Date.now();
     await deps.sleep(sleepMs);
-    const overshootMs = Date.now() - sleepStart - intervalMs;
+    const overshootMs = Date.now() - sleepStart - sleepMs;
     if (overshootMs > 60_000) {
       wakeDelayMs = overshootMs;
       deps.log(`Woke ${formatUptime(overshootMs)} late (system sleep?)`);
@@ -595,7 +609,9 @@ export async function runDaemonWithDefaults(
   const { runPing } = await import("./run-ping.js");
   const { listAccounts } = await import("./config.js");
   const { getWindowReset } = await import("./state.js");
-  const { checkRecentActivity } = await import("./schedule.js");
+  const { checkRecentActivity, readAccountSchedule } = await import(
+    "./schedule.js"
+  );
 
   const smartScheduleEnabled = options.smartSchedule !== false;
   let shouldDeferPing:
@@ -603,7 +619,7 @@ export async function runDaemonWithDefaults(
     | undefined;
 
   if (smartScheduleEnabled) {
-    const { readAccountSchedule, shouldDefer } = await import("./schedule.js");
+    const { shouldDefer } = await import("./schedule.js");
 
     // Log computed schedules at startup for debuggability
     for (const account of listAccounts()) {
@@ -677,6 +693,16 @@ export async function runDaemonWithDefaults(
       return checkRecentActivity(configDir);
     },
     shouldDeferPing,
+    getOptimalHour: smartScheduleEnabled
+      ? (handle, configDir) => {
+          const account = listAccounts().find((a) => a.handle === handle);
+          const resetAt = account?.scheduleResetAt
+            ? new Date(account.scheduleResetAt)
+            : undefined;
+          const schedule = readAccountSchedule(configDir, new Date(), resetAt);
+          return schedule?.optimalPingHour;
+        }
+      : undefined,
     hasUpgraded,
     updateState: (patch) => {
       const current = readDaemonState();

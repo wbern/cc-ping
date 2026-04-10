@@ -24,6 +24,9 @@ vi.mock("./identity.js", () => ({
 const { listAccounts } = await import("./config.js");
 const { findDuplicates } = await import("./identity.js");
 const { recordPing } = await import("./state.js");
+
+import type { DeferInfo } from "./status.js";
+
 const {
   getAccountStatuses,
   formatStatusLine,
@@ -162,6 +165,30 @@ describe("getAccountStatuses", () => {
     expect(statuses[1].duplicateOf).toBe("bernting");
   });
 
+  it("returns deferred status with reason when account is covered by recent activity", () => {
+    const pingTime = new Date("2025-01-01T00:00:00.000Z");
+    recordPing("covered-acct", pingTime);
+    const now = new Date("2025-01-01T06:00:00.000Z"); // window expired
+    const accounts = [{ handle: "covered-acct", configDir: "/tmp/covered" }];
+    const coveredHandles = new Map<string, DeferInfo | null>([
+      ["covered-acct", { optimalPingHour: 14, peakStart: 17, peakEnd: 22 }],
+    ]);
+    const statuses = getAccountStatuses(
+      accounts,
+      now,
+      undefined,
+      undefined,
+      coveredHandles,
+    );
+    expect(statuses[0].windowStatus).toBe("deferred");
+    expect(statuses[0].deferReason).toBe(
+      "window active from recent Claude Code usage",
+    );
+    expect(statuses[0].deferUntilUtcHour).toBe(14);
+    expect(statuses[0].peakWindowUtc).toBe("17-22");
+    expect(statuses[0].timeUntilReset).toBeNull();
+  });
+
   it("returns null for cost and tokens when no metadata", () => {
     const pingTime = new Date("2025-01-01T00:00:00.000Z");
     recordPing("no-meta", pingTime);
@@ -221,6 +248,23 @@ describe("formatStatusLine", () => {
     expect(line).toContain("never");
   });
 
+  it("shows both reason and next ping for activity-covered accounts", () => {
+    const line = formatStatusLine({
+      handle: "alice",
+      configDir: "/tmp/alice",
+      lastPing: "2025-01-01T00:00:00.000Z",
+      windowStatus: "deferred",
+      timeUntilReset: null,
+      lastCostUsd: null,
+      lastTokens: null,
+      deferReason: "window active from recent Claude Code usage",
+      deferUntilUtcHour: 14,
+      peakWindowUtc: "17-22",
+    });
+    expect(line).toContain("window active from recent Claude Code usage");
+    expect(line).toContain("next ping at 14:00 UTC (peak: 17-22 UTC)");
+  });
+
   it("formats a deferred account with scheduled ping time", () => {
     const line = formatStatusLine({
       handle: "eve",
@@ -234,7 +278,7 @@ describe("formatStatusLine", () => {
     });
     expect(line).toContain("eve");
     expect(line).toContain("deferred");
-    expect(line).toContain("scheduled ping at 9:00 UTC");
+    expect(line).toContain("next ping at 9:00 UTC");
   });
 
   it("shows peak activity window when available", () => {
@@ -249,7 +293,7 @@ describe("formatStatusLine", () => {
       deferUntilUtcHour: 16,
       peakWindowUtc: "19-0",
     });
-    expect(line).toContain("scheduled ping at 16:00 UTC");
+    expect(line).toContain("next ping at 16:00 UTC");
     expect(line).toContain("peak: 19-0 UTC");
   });
 

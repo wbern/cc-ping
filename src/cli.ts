@@ -32,6 +32,7 @@ import { setConfigDir } from "./paths.js";
 import { runPing } from "./run-ping.js";
 import { scanAccounts } from "./scan.js";
 import {
+  checkRecentActivity,
   parseSmartSchedule,
   readAccountSchedule,
   shouldDefer,
@@ -62,6 +63,30 @@ function getDeferredHandles(): Map<string, DeferInfo> {
   return deferred;
 }
 
+function getCoveredHandles(): Map<string, DeferInfo | null> {
+  const covered = new Map<string, DeferInfo | null>();
+  const now = new Date();
+  for (const account of listAccounts()) {
+    if (checkRecentActivity(account.configDir)) {
+      const resetAt = account.scheduleResetAt
+        ? new Date(account.scheduleResetAt)
+        : undefined;
+      const schedule = readAccountSchedule(account.configDir, now, resetAt);
+      covered.set(
+        account.handle,
+        schedule
+          ? {
+              optimalPingHour: schedule.optimalPingHour,
+              peakStart: schedule.peakStart,
+              peakEnd: schedule.peakEnd,
+            }
+          : null,
+      );
+    }
+  }
+  return covered;
+}
+
 const program = new Command()
   .name("cc-ping")
   .description("Ping Claude Code sessions to trigger quota windows early")
@@ -77,7 +102,13 @@ const program = new Command()
     }
   })
   .action(() => {
-    showDefault(console.log, new Date(), getDeferredHandles());
+    showDefault(
+      console.log,
+      new Date(),
+      getDeferredHandles(),
+      undefined,
+      getCoveredHandles(),
+    );
   });
 
 program
@@ -241,6 +272,7 @@ program
   .option("--censor", "Mask account handles in output (for screenshots)")
   .action((opts) => {
     const deferred = getDeferredHandles();
+    const covered = getCoveredHandles();
     if (opts.json) {
       const accounts = listAccounts();
       const dupes = findDuplicates(accounts);
@@ -249,13 +281,20 @@ program
         new Date(),
         dupes,
         deferred,
+        covered,
       );
       console.log(JSON.stringify(statuses, null, 2));
       return;
     }
-    printAccountTable(console.log, new Date(), deferred, {
-      censor: opts.censor,
-    });
+    printAccountTable(
+      console.log,
+      new Date(),
+      deferred,
+      {
+        censor: opts.censor,
+      },
+      covered,
+    );
   });
 
 program
@@ -400,9 +439,13 @@ daemon
         "Hint: won't survive a reboot. Use `cc-ping daemon install` for a persistent service.",
       );
     }
-    printAccountTable(console.log, new Date(), getDeferredHandles(), {
-      censor: opts.censor,
-    });
+    printAccountTable(
+      console.log,
+      new Date(),
+      getDeferredHandles(),
+      { censor: opts.censor },
+      getCoveredHandles(),
+    );
   });
 
 daemon
@@ -450,11 +493,13 @@ daemon
       const accounts = listAccounts();
       const dupes = findDuplicates(accounts);
       const deferred = getDeferredHandles();
+      const covered = getCoveredHandles();
       const accountStatuses = getAccountStatuses(
         accounts,
         new Date(),
         dupes,
         deferred,
+        covered,
       );
       console.log(
         JSON.stringify(
@@ -505,9 +550,13 @@ daemon
       );
     }
     console.log("");
-    printAccountTable(console.log, new Date(), getDeferredHandles(), {
-      censor: opts.censor,
-    });
+    printAccountTable(
+      console.log,
+      new Date(),
+      getDeferredHandles(),
+      { censor: opts.censor },
+      getCoveredHandles(),
+    );
   });
 
 daemon

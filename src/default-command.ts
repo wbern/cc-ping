@@ -8,6 +8,7 @@ export function showDefault(
   now: Date = new Date(),
   deferredHandles?: Map<string, DeferInfo>,
   options?: { censor?: boolean },
+  coveredHandles?: Map<string, DeferInfo | null>,
 ): void {
   const accounts = listAccounts();
   if (accounts.length === 0) {
@@ -19,12 +20,20 @@ export function showDefault(
   }
 
   const dupes = findDuplicates(accounts);
-  const statuses = getAccountStatuses(accounts, now, dupes, deferredHandles);
+  const statuses = getAccountStatuses(
+    accounts,
+    now,
+    dupes,
+    deferredHandles,
+    coveredHandles,
+  );
   for (const s of statuses) {
     log(formatStatusLine(s, options));
   }
 
-  const needsPing = statuses.filter((s) => s.windowStatus !== "active");
+  const needsPing = statuses.filter(
+    (s) => s.windowStatus !== "active" && s.windowStatus !== "deferred",
+  );
   if (needsPing.length > 0) {
     log("");
     log("Suggested next steps:");
