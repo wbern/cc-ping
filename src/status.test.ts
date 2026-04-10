@@ -30,6 +30,7 @@ import type { DeferInfo } from "./status.js";
 const {
   getAccountStatuses,
   formatStatusLine,
+  formatTimeAgo,
   printAccountTable,
   censorHandle,
 } = await import("./status.js");
@@ -201,20 +202,23 @@ describe("getAccountStatuses", () => {
 });
 
 describe("formatStatusLine", () => {
-  it("formats an active account with multi-line layout", () => {
-    const line = formatStatusLine({
-      handle: "alice",
-      configDir: "/tmp/alice",
-      lastPing: "2025-01-01T00:00:00.000Z",
-      windowStatus: "active",
-      timeUntilReset: "4h 0m",
-      lastCostUsd: null,
-      lastTokens: null,
-    });
+  it("shows last ping as relative time when now is provided", () => {
+    const line = formatStatusLine(
+      {
+        handle: "alice",
+        configDir: "/tmp/alice",
+        lastPing: "2025-01-01T00:00:00.000Z",
+        windowStatus: "active",
+        timeUntilReset: "4h 0m",
+        lastCostUsd: null,
+        lastTokens: null,
+      },
+      { now: new Date("2025-01-01T02:30:00.000Z") },
+    );
     const lines = line.split("\n");
     expect(lines[0]).toContain("alice");
     expect(lines[0]).toContain("active");
-    expect(line).toContain("last ping:");
+    expect(line).toContain("last ping: 2h 30m ago");
     expect(line).toContain("resets in 4h 0m");
   });
 
@@ -249,20 +253,23 @@ describe("formatStatusLine", () => {
   });
 
   it("shows both reason and next ping for activity-covered accounts", () => {
-    const line = formatStatusLine({
-      handle: "alice",
-      configDir: "/tmp/alice",
-      lastPing: "2025-01-01T00:00:00.000Z",
-      windowStatus: "deferred",
-      timeUntilReset: null,
-      lastCostUsd: null,
-      lastTokens: null,
-      deferReason: "window active from recent Claude Code usage",
-      deferUntilUtcHour: 14,
-      peakWindowUtc: "17-22",
-    });
+    const line = formatStatusLine(
+      {
+        handle: "alice",
+        configDir: "/tmp/alice",
+        lastPing: "2025-01-01T00:00:00.000Z",
+        windowStatus: "deferred",
+        timeUntilReset: null,
+        lastCostUsd: null,
+        lastTokens: null,
+        deferReason: "window active from recent Claude Code usage",
+        deferUntilUtcHour: 14,
+        peakWindowUtc: "17-22",
+      },
+      { now: new Date("2025-01-01T11:00:00.000Z") },
+    );
     expect(line).toContain("window active from recent Claude Code usage");
-    expect(line).toContain("next ping at 14:00 UTC (peak: 17-22 UTC)");
+    expect(line).toContain("next ping in 3h");
   });
 
   it("formats a deferred account with scheduled ping time", () => {
@@ -403,6 +410,51 @@ describe("censorHandle", () => {
 
   it("returns single-char handles as-is", () => {
     expect(censorHandle("a")).toBe("a");
+  });
+});
+
+describe("formatTimeAgo", () => {
+  const base = "2025-01-01T12:00:00.000Z";
+
+  it("returns 'just now' for less than a minute", () => {
+    expect(formatTimeAgo(base, new Date("2025-01-01T12:00:30.000Z"))).toBe(
+      "just now",
+    );
+  });
+
+  it("returns minutes for less than an hour", () => {
+    expect(formatTimeAgo(base, new Date("2025-01-01T12:45:00.000Z"))).toBe(
+      "45m ago",
+    );
+  });
+
+  it("returns hours and minutes", () => {
+    expect(formatTimeAgo(base, new Date("2025-01-01T14:30:00.000Z"))).toBe(
+      "2h 30m ago",
+    );
+  });
+
+  it("returns hours only when minutes are zero", () => {
+    expect(formatTimeAgo(base, new Date("2025-01-01T15:00:00.000Z"))).toBe(
+      "3h ago",
+    );
+  });
+
+  it("returns days and hours", () => {
+    expect(formatTimeAgo(base, new Date("2025-01-03T18:00:00.000Z"))).toBe(
+      "2d 6h ago",
+    );
+  });
+
+  it("returns days only when hours are zero", () => {
+    expect(formatTimeAgo(base, new Date("2025-01-04T12:00:00.000Z"))).toBe(
+      "3d ago",
+    );
+  });
+
+  it("falls back to date string for 7+ days", () => {
+    const result = formatTimeAgo(base, new Date("2025-01-10T12:00:00.000Z"));
+    expect(result).toBe("2025-01-01 12:00:00Z");
   });
 });
 

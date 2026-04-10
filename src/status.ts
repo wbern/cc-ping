@@ -1,5 +1,6 @@
 import { blue, green, red, yellow } from "./color.js";
 import { listAccounts } from "./config.js";
+import { msUntilUtcHour } from "./daemon.js";
 import type { DuplicateGroup } from "./identity.js";
 import { findDuplicates } from "./identity.js";
 import {
@@ -76,9 +77,27 @@ function censorDomain(domain: string): string {
   return censorPart(name) + tld;
 }
 
+export function formatTimeAgo(isoString: string, now: Date): string {
+  const ms = now.getTime() - new Date(isoString).getTime();
+  if (ms < 60_000) return "just now";
+  const totalMinutes = Math.floor(ms / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}m ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 0)
+    return minutes > 0 ? `${hours}h ${minutes}m ago` : `${hours}h ago`;
+  const remainingHours = hours % 24;
+  if (days < 7)
+    return remainingHours > 0
+      ? `${days}d ${remainingHours}h ago`
+      : `${days}d ago`;
+  return isoString.replace("T", " ").replace(/\.\d+Z$/, "Z");
+}
+
 export function formatStatusLine(
   status: AccountStatus,
-  options?: { censor?: boolean },
+  options?: { censor?: boolean; now?: Date },
 ): string {
   const lines: string[] = [];
   const handle = options?.censor ? censorHandle(status.handle) : status.handle;
@@ -87,10 +106,14 @@ export function formatStatusLine(
     : "";
   lines.push(`  ${handle}: ${colorizeStatus(status.windowStatus)}${dup}`);
 
-  const ping =
-    status.lastPing === null
-      ? "never"
-      : status.lastPing.replace("T", " ").replace(/\.\d+Z$/, "Z");
+  let ping: string;
+  if (status.lastPing === null) {
+    ping = "never";
+  } else if (options?.now) {
+    ping = formatTimeAgo(status.lastPing, options.now);
+  } else {
+    ping = status.lastPing.replace("T", " ").replace(/\.\d+Z$/, "Z");
+  }
   lines.push(`    - last ping: ${ping}`);
 
   if (status.timeUntilReset !== null) {
@@ -101,10 +124,17 @@ export function formatStatusLine(
     lines.push(`    - ${status.deferReason}`);
   }
   if (status.deferUntilUtcHour !== undefined) {
-    const peak = status.peakWindowUtc
-      ? ` (peak: ${status.peakWindowUtc} UTC)`
-      : "";
-    lines.push(`    - next ping at ${status.deferUntilUtcHour}:00 UTC${peak}`);
+    if (options?.now) {
+      const ms = msUntilUtcHour(status.deferUntilUtcHour, options.now);
+      lines.push(`    - next ping in ${formatTimeRemaining(ms)}`);
+    } else {
+      const peak = status.peakWindowUtc
+        ? ` (peak: ${status.peakWindowUtc} UTC)`
+        : "";
+      lines.push(
+        `    - next ping at ${status.deferUntilUtcHour}:00 UTC${peak}`,
+      );
+    }
   }
 
   return lines.join("\n");
@@ -208,6 +238,6 @@ export function printAccountTable(
     coveredHandles,
   );
   for (const s of statuses) {
-    log(formatStatusLine(s, options));
+    log(formatStatusLine(s, { ...options, now }));
   }
 }

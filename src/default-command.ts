@@ -28,7 +28,7 @@ export function showDefault(
     coveredHandles,
   );
   for (const s of statuses) {
-    log(formatStatusLine(s, options));
+    log(formatStatusLine(s, { ...options, now }));
   }
 
   const needsPing = statuses.filter(
