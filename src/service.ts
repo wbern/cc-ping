@@ -74,6 +74,7 @@ export function generateLaunchdPlist(
   options: ServiceOptions,
   execInfo: ExecInfo,
   configDir?: string,
+  path?: string,
 ): string {
   const intervalMs = parseIntervalForService(options.interval);
   const programArgs = [
@@ -103,6 +104,7 @@ export function generateLaunchdPlist(
   const envVars: Record<string, string> = {};
   if (configDir) envVars.CC_PING_CONFIG = configDir;
   if (execInfo.args.length === 0) envVars.CC_PING_BIN = execInfo.executable;
+  if (path) envVars.PATH = path;
 
   let envSection = "";
   if (Object.keys(envVars).length > 0) {
@@ -149,6 +151,7 @@ export function generateSystemdUnit(
   options: ServiceOptions,
   execInfo: ExecInfo,
   configDir?: string,
+  path?: string,
 ): string {
   const intervalMs = parseIntervalForService(options.interval);
   const programArgs = [
@@ -173,6 +176,7 @@ export function generateSystemdUnit(
   if (configDir) envPairs.push(`CC_PING_CONFIG=${configDir}`);
   if (execInfo.args.length === 0)
     envPairs.push(`CC_PING_BIN=${execInfo.executable}`);
+  if (path) envPairs.push(`PATH=${path}`);
   const envLine = envPairs.map((p) => `\nEnvironment=${p}`).join("");
 
   return `[Unit]
@@ -264,11 +268,13 @@ export async function installService(
   });
   const configDir = _configDir || undefined;
 
+  const envPath = process.env.PATH;
+
   let content: string;
   if (_platform === "darwin") {
-    content = generateLaunchdPlist(options, execInfo, configDir);
+    content = generateLaunchdPlist(options, execInfo, configDir, envPath);
   } else {
-    content = generateSystemdUnit(options, execInfo, configDir);
+    content = generateSystemdUnit(options, execInfo, configDir, envPath);
   }
 
   _mkdirSync(dirname(path), { recursive: true });

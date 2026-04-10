@@ -106,6 +106,19 @@ describe("service", () => {
       expect(plist).not.toContain("CC_PING_CONFIG");
     });
 
+    it("includes PATH when provided", () => {
+      const plist = generateLaunchdPlist(
+        {},
+        execInfo,
+        undefined,
+        "/opt/homebrew/bin:/usr/bin:/bin",
+      );
+      expect(plist).toContain("<key>PATH</key>");
+      expect(plist).toContain(
+        "<string>/opt/homebrew/bin:/usr/bin:/bin</string>",
+      );
+    });
+
     it("includes CC_PING_BIN when executable is a direct path", () => {
       const plist = generateLaunchdPlist({}, execInfo);
       expect(plist).toContain("CC_PING_BIN");
@@ -197,6 +210,16 @@ describe("service", () => {
     it("omits CC_PING_CONFIG when configDir is not provided", () => {
       const unit = generateSystemdUnit({}, execInfo);
       expect(unit).not.toContain("CC_PING_CONFIG");
+    });
+
+    it("includes PATH when provided", () => {
+      const unit = generateSystemdUnit(
+        {},
+        execInfo,
+        undefined,
+        "/usr/local/bin:/usr/bin:/bin",
+      );
+      expect(unit).toContain("Environment=PATH=/usr/local/bin:/usr/bin:/bin");
     });
 
     it("includes CC_PING_BIN when executable is a direct path", () => {
@@ -390,6 +413,19 @@ describe("service", () => {
       );
     });
 
+    it("includes PATH from environment in service file", async () => {
+      const writeFileSync = vi.fn();
+      const deps = makeDeps({
+        writeFileSync,
+        execSync: vi.fn().mockReturnValue("/usr/local/bin/cc-ping\n"),
+      });
+
+      await installService({}, deps);
+
+      const content = writeFileSync.mock.calls[0][1] as string;
+      expect(content).toContain("PATH");
+    });
+
     it("passes all options to service file content", async () => {
       const writeFileSync = vi.fn();
       const deps = makeDeps({
@@ -485,7 +521,7 @@ describe("service", () => {
   });
 
   describe("installService service file content", () => {
-    it("uses cc-ping as executable when which succeeds (no 'node' in plist)", async () => {
+    it("uses cc-ping as executable when which succeeds", async () => {
       const writeFileSync = vi.fn();
       const deps = makeDeps({
         platform: "darwin",
@@ -497,7 +533,11 @@ describe("service", () => {
 
       const content = writeFileSync.mock.calls[0][1] as string;
       expect(content).toContain("<string>/usr/local/bin/cc-ping</string>");
-      expect(content).not.toContain("node");
+      // Executable should be cc-ping, not node + script
+      const argsSection = content
+        .split("<key>ProgramArguments</key>")[1]
+        .split("</array>")[0];
+      expect(argsSection).not.toContain("node");
     });
 
     it("falls back to node + script when which fails", async () => {
@@ -531,7 +571,11 @@ describe("service", () => {
 
       const content = writeFileSync.mock.calls[0][1] as string;
       expect(content).toContain("ExecStart=/usr/local/bin/cc-ping daemon _run");
-      expect(content).not.toContain("node");
+      // ExecStart should use cc-ping directly, not node
+      const execLine = content
+        .split("\n")
+        .find((l: string) => l.startsWith("ExecStart="));
+      expect(execLine).not.toContain("node");
     });
 
     it("linux unit falls back to node + script when which fails", async () => {
