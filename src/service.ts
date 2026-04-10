@@ -41,6 +41,7 @@ export interface ServiceDeps {
   execSync: (cmd: string, options?: object) => string;
   stopDaemon: () => Promise<{ success: boolean; error?: string }>;
   configDir?: string;
+  envPath?: string;
 }
 
 // --- Pure functions ---
@@ -268,7 +269,7 @@ export async function installService(
   });
   const configDir = _configDir || undefined;
 
-  const envPath = process.env.PATH;
+  const envPath = deps?.envPath ?? process.env.PATH;
 
   let content: string;
   if (_platform === "darwin") {

@@ -133,15 +133,20 @@ export function getAccountSchedule(
   return { optimalPingHour, peakStart, peakEnd, histogram };
 }
 
+function readHistoryLines(configDir: string): string[] | null {
+  const historyPath = join(configDir, "history.jsonl");
+  if (!existsSync(historyPath)) return null;
+  const content = readFileSync(historyPath, "utf-8");
+  return content.split("\n").filter((l) => l.trim());
+}
+
 export function readAccountSchedule(
   configDir: string,
   now: Date = new Date(),
   resetAt?: Date,
 ): AccountSchedule | null {
-  const historyPath = join(configDir, "history.jsonl");
-  if (!existsSync(historyPath)) return null;
-  const content = readFileSync(historyPath, "utf-8");
-  const lines = content.split("\n").filter((l) => l.trim());
+  const lines = readHistoryLines(configDir);
+  if (!lines) return null;
   return getAccountSchedule(lines, now, resetAt);
 }
 
@@ -149,10 +154,8 @@ export function checkRecentActivity(
   configDir: string,
   now: Date = new Date(),
 ): boolean {
-  const historyPath = join(configDir, "history.jsonl");
-  if (!existsSync(historyPath)) return false;
-  const content = readFileSync(historyPath, "utf-8");
-  const lines = content.split("\n").filter((l) => l.trim());
+  const lines = readHistoryLines(configDir);
+  if (!lines) return false;
   return isRecentlyActive(lines, now);
 }
 

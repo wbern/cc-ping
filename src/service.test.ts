@@ -418,12 +418,16 @@ describe("service", () => {
       const deps = makeDeps({
         writeFileSync,
         execSync: vi.fn().mockReturnValue("/usr/local/bin/cc-ping\n"),
+        envPath: "/opt/homebrew/bin:/usr/bin:/bin",
       });
 
       await installService({}, deps);
 
       const content = writeFileSync.mock.calls[0][1] as string;
-      expect(content).toContain("PATH");
+      expect(content).toContain("<key>PATH</key>");
+      expect(content).toContain(
+        "<string>/opt/homebrew/bin:/usr/bin:/bin</string>",
+      );
     });
 
     it("passes all options to service file content", async () => {

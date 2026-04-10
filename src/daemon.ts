@@ -209,7 +209,7 @@ interface DaemonLoopDeps {
   shouldStop: () => boolean;
   log: (msg: string) => void;
   updateState?: (patch: Partial<DaemonState>) => void;
-  isWindowActive?: (handle: string) => boolean;
+  isWindowActive?: (handle: string, configDir: string) => boolean;
   shouldDeferPing?: (handle: string, configDir: string) => DeferResult;
   hasUpgraded?: () => boolean;
   now?: () => Date;
@@ -229,7 +229,7 @@ export async function daemonLoop(
 
     const allAccounts = deps.listAccounts();
     let accounts = deps.isWindowActive
-      ? allAccounts.filter((a) => !deps.isWindowActive!(a.handle))
+      ? allAccounts.filter((a) => !deps.isWindowActive!(a.handle, a.configDir))
       : allAccounts;
     const skipped = allAccounts.length - accounts.length;
 
@@ -672,10 +672,9 @@ export async function runDaemonWithDefaults(
     sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
     shouldStop: () => existsSync(stopPath),
     log: (msg) => console.log(msg),
-    isWindowActive: (handle) => {
+    isWindowActive: (handle, configDir) => {
       if (getWindowReset(handle) !== null) return true;
-      const account = listAccounts().find((a) => a.handle === handle);
-      return account ? checkRecentActivity(account.configDir) : false;
+      return checkRecentActivity(configDir);
     },
     shouldDeferPing,
     hasUpgraded,
