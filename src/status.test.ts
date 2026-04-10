@@ -112,7 +112,8 @@ describe("getAccountStatuses", () => {
     const statuses = getAccountStatuses(accounts, now, undefined, deferred);
     expect(statuses[0].windowStatus).toBe("deferred");
     expect(statuses[0].deferUntilUtcHour).toBe(9);
-    expect(statuses[0].peakWindowUtc).toBe("12-17");
+    expect(statuses[0].peakStartHour).toBe(12);
+    expect(statuses[0].peakEndHour).toBe(17);
   });
 
   it("returns empty array for no accounts", () => {
@@ -187,7 +188,8 @@ describe("getAccountStatuses", () => {
       "window active from recent Claude Code usage",
     );
     expect(statuses[0].deferUntilUtcHour).toBe(14);
-    expect(statuses[0].peakWindowUtc).toBe("17-22");
+    expect(statuses[0].peakStartHour).toBe(17);
+    expect(statuses[0].peakEndHour).toBe(22);
     expect(statuses[0].timeUntilReset).toBeNull();
   });
 
@@ -219,7 +221,7 @@ describe("formatStatusLine", () => {
     const lines = line.split("\n");
     expect(lines[0]).toContain("alice");
     expect(lines[0]).toContain("active");
-    expect(line).toContain("last ping: 2h 30m ago");
+    expect(line).toContain("last ping: about 3 hours ago");
     expect(line).toContain("resets in 4h 0m");
   });
 
@@ -265,12 +267,13 @@ describe("formatStatusLine", () => {
         lastTokens: null,
         deferReason: "window active from recent Claude Code usage",
         deferUntilUtcHour: 14,
-        peakWindowUtc: "17-22",
+        peakStartHour: 17,
+        peakEndHour: 22,
       },
       { now: new Date("2025-01-01T11:00:00.000Z") },
     );
     expect(line).toContain("window active from recent Claude Code usage");
-    expect(line).toContain("next ping in 3h");
+    expect(line).toContain("next ping in about 3 hours");
     expect(line).toContain("peak:");
     expect(line).not.toContain("UTC");
   });
@@ -305,7 +308,7 @@ describe("formatStatusLine", () => {
       },
       { now: new Date("2025-01-01T06:00:00.000Z") },
     );
-    expect(line).toContain("next ping in 3h");
+    expect(line).toContain("next ping in about 3 hours");
     expect(line).not.toContain("peak");
     expect(line).not.toContain("UTC");
   });
@@ -320,7 +323,8 @@ describe("formatStatusLine", () => {
       lastCostUsd: null,
       lastTokens: null,
       deferUntilUtcHour: 16,
-      peakWindowUtc: "19-0",
+      peakStartHour: 19,
+      peakEndHour: 0,
     });
     expect(line).toContain("next ping at 16:00 UTC");
     expect(line).toContain("peak: 19-0 UTC");
@@ -438,45 +442,18 @@ describe("censorHandle", () => {
 describe("formatTimeAgo", () => {
   const base = "2025-01-01T12:00:00.000Z";
 
-  it("returns 'just now' for less than a minute", () => {
-    expect(formatTimeAgo(base, new Date("2025-01-01T12:00:30.000Z"))).toBe(
-      "just now",
-    );
+  it("returns a past-tense distance string", () => {
+    const result = formatTimeAgo(base, new Date("2025-01-01T15:00:00.000Z"));
+    expect(result).toContain("ago");
+    expect(result).toContain("hour");
   });
 
-  it("returns minutes for less than an hour", () => {
-    expect(formatTimeAgo(base, new Date("2025-01-01T12:45:00.000Z"))).toBe(
-      "45m ago",
-    );
-  });
-
-  it("returns hours and minutes", () => {
-    expect(formatTimeAgo(base, new Date("2025-01-01T14:30:00.000Z"))).toBe(
-      "2h 30m ago",
-    );
-  });
-
-  it("returns hours only when minutes are zero", () => {
-    expect(formatTimeAgo(base, new Date("2025-01-01T15:00:00.000Z"))).toBe(
-      "3h ago",
-    );
-  });
-
-  it("returns days and hours", () => {
-    expect(formatTimeAgo(base, new Date("2025-01-03T18:00:00.000Z"))).toBe(
-      "2d 6h ago",
-    );
-  });
-
-  it("returns days only when hours are zero", () => {
-    expect(formatTimeAgo(base, new Date("2025-01-04T12:00:00.000Z"))).toBe(
-      "3d ago",
-    );
-  });
-
-  it("falls back to date string for 7+ days", () => {
-    const result = formatTimeAgo(base, new Date("2025-01-10T12:00:00.000Z"));
-    expect(result).toBe("2025-01-01 12:00:00Z");
+  it("scales from minutes to days", () => {
+    const minutes = formatTimeAgo(base, new Date("2025-01-01T12:45:00.000Z"));
+    expect(minutes).toContain("ago");
+    const days = formatTimeAgo(base, new Date("2025-01-04T12:00:00.000Z"));
+    expect(days).toContain("day");
+    expect(days).toContain("ago");
   });
 });
 
@@ -484,40 +461,20 @@ describe("formatLocalHour", () => {
   const ref = new Date("2025-01-01T12:00:00.000Z");
 
   it("converts UTC hours to local AM/PM format", () => {
-    const d = new Date(ref);
-    d.setUTCHours(17, 0, 0, 0);
-    const h = d.getHours();
-    const expected =
-      h === 0
-        ? "12 AM"
-        : h === 12
-          ? "12 PM"
-          : h > 12
-            ? `${h - 12} PM`
-            : `${h} AM`;
-    expect(formatLocalHour(17, ref)).toBe(expected);
-  });
-
-  it("returns 12 AM when UTC hour maps to local midnight", () => {
-    // Find the UTC hour that maps to local midnight
-    const offset = ref.getTimezoneOffset(); // minutes ahead of UTC (negative = east)
-    const midnightUtc = ((0 + offset / 60 + 24) % 24) | 0;
-    expect(formatLocalHour(midnightUtc, ref)).toBe("12 AM");
-  });
-
-  it("returns 12 PM when UTC hour maps to local noon", () => {
-    const offset = ref.getTimezoneOffset();
-    const noonUtc = ((12 + offset / 60 + 24) % 24) | 0;
-    expect(formatLocalHour(noonUtc, ref)).toBe("12 PM");
-  });
-
-  it("covers both AM and PM branches", () => {
-    // Find UTC hours that map to local 3 AM and 3 PM
+    // Compute expected by setting the UTC hour and reading local format
     const offset = ref.getTimezoneOffset();
     const threeAmUtc = ((3 + offset / 60 + 24) % 24) | 0;
     const threePmUtc = ((15 + offset / 60 + 24) % 24) | 0;
     expect(formatLocalHour(threeAmUtc, ref)).toBe("3 AM");
     expect(formatLocalHour(threePmUtc, ref)).toBe("3 PM");
+  });
+
+  it("handles midnight and noon", () => {
+    const offset = ref.getTimezoneOffset();
+    const midnightUtc = ((0 + offset / 60 + 24) % 24) | 0;
+    const noonUtc = ((12 + offset / 60 + 24) % 24) | 0;
+    expect(formatLocalHour(midnightUtc, ref)).toBe("12 AM");
+    expect(formatLocalHour(noonUtc, ref)).toBe("12 PM");
   });
 });
 

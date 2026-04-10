@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { formatTimeAgo } from "./format.js";
 import { resolveConfigDir } from "./paths.js";
-import { formatTimeAgo } from "./status.js";
 
 interface HistoryEntry {
   timestamp: string;

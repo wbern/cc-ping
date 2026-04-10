@@ -24,6 +24,7 @@ import {
   filterByGroup,
   filterNeedsPing,
 } from "./filter-accounts.js";
+import { formatTimeAgo } from "./format.js";
 import { formatHistoryEntry, readHistory } from "./history.js";
 import { findDuplicates } from "./identity.js";
 import { getNextReset } from "./next-reset.js";
@@ -39,29 +40,37 @@ import {
 } from "./schedule.js";
 import { parseStagger } from "./stagger.js";
 import type { DeferInfo } from "./status.js";
-import {
-  formatTimeAgo,
-  getAccountStatuses,
-  printAccountTable,
-} from "./status.js";
+import { getAccountStatuses, printAccountTable } from "./status.js";
 import { suggestAccount } from "./suggest.js";
 
 declare const __VERSION__: string;
+
+function getScheduleDeferInfo(
+  configDir: string,
+  now: Date,
+  scheduleResetAt?: string,
+): DeferInfo | null {
+  const resetAt = scheduleResetAt ? new Date(scheduleResetAt) : undefined;
+  const schedule = readAccountSchedule(configDir, now, resetAt);
+  if (!schedule) return null;
+  return {
+    optimalPingHour: schedule.optimalPingHour,
+    peakStart: schedule.peakStart,
+    peakEnd: schedule.peakEnd,
+  };
+}
 
 function getDeferredHandles(): Map<string, DeferInfo> {
   const deferred = new Map<string, DeferInfo>();
   const now = new Date();
   for (const account of listAccounts()) {
-    const resetAt = account.scheduleResetAt
-      ? new Date(account.scheduleResetAt)
-      : undefined;
-    const schedule = readAccountSchedule(account.configDir, now, resetAt);
-    if (schedule && shouldDefer(now, schedule.optimalPingHour).defer) {
-      deferred.set(account.handle, {
-        optimalPingHour: schedule.optimalPingHour,
-        peakStart: schedule.peakStart,
-        peakEnd: schedule.peakEnd,
-      });
+    const info = getScheduleDeferInfo(
+      account.configDir,
+      now,
+      account.scheduleResetAt,
+    );
+    if (info && shouldDefer(now, info.optimalPingHour).defer) {
+      deferred.set(account.handle, info);
     }
   }
   return deferred;
@@ -72,19 +81,9 @@ function getCoveredHandles(): Map<string, DeferInfo | null> {
   const now = new Date();
   for (const account of listAccounts()) {
     if (checkRecentActivity(account.configDir)) {
-      const resetAt = account.scheduleResetAt
-        ? new Date(account.scheduleResetAt)
-        : undefined;
-      const schedule = readAccountSchedule(account.configDir, now, resetAt);
       covered.set(
         account.handle,
-        schedule
-          ? {
-              optimalPingHour: schedule.optimalPingHour,
-              peakStart: schedule.peakStart,
-              peakEnd: schedule.peakEnd,
-            }
-          : null,
+        getScheduleDeferInfo(account.configDir, now, account.scheduleResetAt),
       );
     }
   }

@@ -1,6 +1,8 @@
+import { formatDistance } from "date-fns";
 import { blue, green, red, yellow } from "./color.js";
 import { listAccounts } from "./config.js";
 import { msUntilUtcHour } from "./daemon.js";
+import { formatLocalHour, formatTimeAgo } from "./format.js";
 import type { DuplicateGroup } from "./identity.js";
 import { findDuplicates } from "./identity.js";
 import {
@@ -27,7 +29,8 @@ interface AccountStatus {
   lastTokens: number | null;
   duplicateOf?: string;
   deferUntilUtcHour?: number;
-  peakWindowUtc?: string;
+  peakStartHour?: number;
+  peakEndHour?: number;
   deferReason?: string;
 }
 
@@ -77,32 +80,7 @@ function censorDomain(domain: string): string {
   return censorPart(name) + tld;
 }
 
-export function formatLocalHour(utcHour: number, referenceDate: Date): string {
-  const d = new Date(referenceDate);
-  d.setUTCHours(utcHour, 0, 0, 0);
-  const h = d.getHours();
-  if (h === 0) return "12 AM";
-  if (h === 12) return "12 PM";
-  return h > 12 ? `${h - 12} PM` : `${h} AM`;
-}
-
-export function formatTimeAgo(isoString: string, now: Date): string {
-  const ms = now.getTime() - new Date(isoString).getTime();
-  if (ms < 60_000) return "just now";
-  const totalMinutes = Math.floor(ms / 60_000);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours === 0) return `${minutes}m ago`;
-  const days = Math.floor(hours / 24);
-  if (days === 0)
-    return minutes > 0 ? `${hours}h ${minutes}m ago` : `${hours}h ago`;
-  const remainingHours = hours % 24;
-  if (days < 7)
-    return remainingHours > 0
-      ? `${days}d ${remainingHours}h ago`
-      : `${days}d ago`;
-  return isoString.replace("T", " ").replace(/\.\d+Z$/, "Z");
-}
+export { formatLocalHour, formatTimeAgo } from "./format.js";
 
 export function formatStatusLine(
   status: AccountStatus,
@@ -133,18 +111,22 @@ export function formatStatusLine(
     lines.push(`    - ${status.deferReason}`);
   }
   if (status.deferUntilUtcHour !== undefined) {
+    const { peakStartHour, peakEndHour } = status;
+    const hasPeak = peakStartHour !== undefined && peakEndHour !== undefined;
     if (options?.now) {
+      const targetTime = new Date(options.now);
       const ms = msUntilUtcHour(status.deferUntilUtcHour, options.now);
-      const peak = status.peakWindowUtc
-        ? (() => {
-            const [s, e] = status.peakWindowUtc.split("-").map(Number);
-            return ` (peak: ${formatLocalHour(s, options.now!)} – ${formatLocalHour(e, options.now!)})`;
-          })()
+      targetTime.setTime(targetTime.getTime() + ms);
+      const distance = formatDistance(targetTime, options.now, {
+        addSuffix: true,
+      });
+      const peak = hasPeak
+        ? ` (peak: ${formatLocalHour(peakStartHour, options.now)} – ${formatLocalHour(peakEndHour, options.now)})`
         : "";
-      lines.push(`    - next ping in ${formatTimeRemaining(ms)}${peak}`);
+      lines.push(`    - next ping ${distance}${peak}`);
     } else {
-      const peak = status.peakWindowUtc
-        ? ` (peak: ${status.peakWindowUtc} UTC)`
+      const peak = hasPeak
+        ? ` (peak: ${peakStartHour}-${peakEndHour} UTC)`
         : "";
       lines.push(
         `    - next ping at ${status.deferUntilUtcHour}:00 UTC${peak}`,
@@ -201,14 +183,10 @@ export function getAccountStatuses(
     const coveredInfo = isCovered
       ? coveredHandles?.get(account.handle)
       : undefined;
-    const deferUntilUtcHour = isDeferred
-      ? deferInfo.optimalPingHour
-      : coveredInfo?.optimalPingHour;
-    const peakWindowUtc = isDeferred
-      ? `${deferInfo.peakStart}-${deferInfo.peakEnd}`
-      : coveredInfo
-        ? `${coveredInfo.peakStart}-${coveredInfo.peakEnd}`
-        : undefined;
+    const info = isDeferred ? deferInfo : coveredInfo;
+    const deferUntilUtcHour = info?.optimalPingHour;
+    const peakStartHour = info?.peakStart;
+    const peakEndHour = info?.peakEnd;
     const deferReason = isCovered
       ? "window active from recent Claude Code usage"
       : undefined;
@@ -226,7 +204,8 @@ export function getAccountStatuses(
       lastTokens,
       duplicateOf,
       deferUntilUtcHour,
-      peakWindowUtc,
+      peakStartHour,
+      peakEndHour,
       deferReason,
     };
   });

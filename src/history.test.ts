@@ -124,7 +124,7 @@ describe("formatHistoryEntry", () => {
       },
       new Date("2025-01-01T02:30:00.000Z"),
     );
-    expect(line).toContain("2h 30m ago");
+    expect(line).toContain("about 3 hours ago");
     expect(line).not.toContain("2025-01-01");
   });
 
