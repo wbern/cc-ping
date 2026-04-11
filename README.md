@@ -87,7 +87,6 @@ Ping configured accounts to start their quota windows. Pings accounts sequential
 | `--json` | `false` | Output results as JSON |
 | `--quiet` | `false` | Suppress per-account output |
 | `--group <name>` | — | Only ping accounts in this group |
-| `--exclude <handles>` | — | Skip specific accounts |
 
 ### `cc-ping status`
 
@@ -125,6 +124,10 @@ List all configured accounts with their config directory paths.
 
 Show recent ping results — handle, success/failure, duration, cost.
 
+### `cc-ping schedule reset [handle]`
+
+Reset smart scheduling data to recompute optimal ping times. Pass a handle to reset a specific account, or omit it to reset all accounts.
+
 ### `cc-ping completions <shell>`
 
 Generate shell completion scripts for `bash`, `zsh`, or `fish`.
@@ -154,6 +157,7 @@ cc-ping daemon stop                    # graceful shutdown
 The daemon is smart about what it pings:
 
 - **Skips active windows** — accounts with a quota window still running are skipped to avoid wasting pings
+- **Detects recent usage** — if you've been using Claude Code directly, the account already has an active window. The daemon detects this from Claude Code's activity timestamps and skips the ping
 - **Retries failures** — if any accounts fail to ping, the daemon retries only the failed ones before sleeping
 - **Detects system sleep** — if the machine wakes from sleep and a ping cycle is overdue, the daemon notices and factors the delay into notifications
 - **Singleton enforcement** — only one daemon runs at a time, verified by PID and process name
@@ -190,7 +194,7 @@ Smart scheduling -- ping timed so window expires at peak:
 
 **How it works:**
 
-1. Reads `<configDir>/history.jsonl` from each account's config directory (Claude Code's prompt timestamps)
+1. Reads Claude Code's `history.jsonl` from each account's config directory (prompt timestamps written by the Claude CLI — not to be confused with cc-ping's own `history.jsonl`)
 2. Builds an hour-of-day histogram from the last 14 days
 3. Slides a 5-hour window across the histogram to find the densest period
 4. Schedules pings so the window expires at the midpoint of peak activity
@@ -278,6 +282,7 @@ All data stays local in `~/.config/cc-ping/`:
 |------|----------|
 | `config.json` | Account names and config directory paths |
 | `state.json` | Last ping timestamp and cost metadata per account |
+| `history.jsonl` | Ping history (timestamp, handle, success/failure, duration) |
 | `daemon.json` | Daemon PID, interval, start time |
 | `daemon.log` | Daemon output log |
 

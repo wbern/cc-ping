@@ -460,21 +460,35 @@ describe("formatTimeAgo", () => {
 describe("formatLocalHour", () => {
   const ref = new Date("2025-01-01T12:00:00.000Z");
 
-  it("converts UTC hours to local AM/PM format", () => {
-    // Compute expected by setting the UTC hour and reading local format
+  function expectedLocalHour(utcHour: number): string {
+    const d = new Date(ref);
+    d.setUTCHours(utcHour, 0, 0, 0);
+    return d.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+
+  it("converts UTC hours to locale-formatted local time", () => {
     const offset = ref.getTimezoneOffset();
     const threeAmUtc = ((3 + offset / 60 + 24) % 24) | 0;
     const threePmUtc = ((15 + offset / 60 + 24) % 24) | 0;
-    expect(formatLocalHour(threeAmUtc, ref)).toBe("3 AM");
-    expect(formatLocalHour(threePmUtc, ref)).toBe("3 PM");
+    expect(formatLocalHour(threeAmUtc, ref)).toBe(
+      expectedLocalHour(threeAmUtc),
+    );
+    expect(formatLocalHour(threePmUtc, ref)).toBe(
+      expectedLocalHour(threePmUtc),
+    );
   });
 
   it("handles midnight and noon", () => {
     const offset = ref.getTimezoneOffset();
     const midnightUtc = ((0 + offset / 60 + 24) % 24) | 0;
     const noonUtc = ((12 + offset / 60 + 24) % 24) | 0;
-    expect(formatLocalHour(midnightUtc, ref)).toBe("12 AM");
-    expect(formatLocalHour(noonUtc, ref)).toBe("12 PM");
+    expect(formatLocalHour(midnightUtc, ref)).toBe(
+      expectedLocalHour(midnightUtc),
+    );
+    expect(formatLocalHour(noonUtc, ref)).toBe(expectedLocalHour(noonUtc));
   });
 });
 
