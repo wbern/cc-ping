@@ -91,9 +91,10 @@ else
   info "Checksums not available, skipping verification"
 fi
 
-# Clear macOS quarantine
+# Re-sign macOS binary (Bun compile may produce broken signatures)
 if [ "$os" = "darwin" ]; then
-  xattr -c "${TMPDIR}/cc-ping" 2>/dev/null || true
+  codesign --remove-signature "${TMPDIR}/cc-ping" 2>/dev/null || true
+  codesign --force --sign - "${TMPDIR}/cc-ping" 2>/dev/null || true
 fi
 
 # Install
