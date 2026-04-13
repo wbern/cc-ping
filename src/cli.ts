@@ -126,7 +126,7 @@ program
   .option("--json", "Output results as JSON", false)
   .option("-g, --group <group>", "Ping only accounts in this group")
   .option("--bell", "Ring terminal bell on ping failure", false)
-  .option("--notify", "Send desktop notification on ping failure", false)
+  .option("--notify", "Desktop notification on new windows and failures", false)
   .option(
     "--stagger <minutes|auto>",
     "Delay between account pings (minutes or 'auto')",
@@ -412,7 +412,7 @@ daemon
   )
   .option("-q, --quiet", "Suppress ping output", false)
   .option("--bell", "Ring terminal bell on ping failure", false)
-  .option("--notify", "Send desktop notification on ping failure", false)
+  .option("--notify", "Desktop notification on new windows and failures", false)
   .option(
     "--smart-schedule <on|off>",
     "Time pings based on usage patterns (default: on)",
@@ -574,7 +574,7 @@ daemon
   )
   .option("-q, --quiet", "Suppress ping output", false)
   .option("--bell", "Ring terminal bell on ping failure", false)
-  .option("--notify", "Send desktop notification on ping failure", false)
+  .option("--notify", "Desktop notification on new windows and failures", false)
   .option(
     "--smart-schedule <on|off>",
     "Time pings based on usage patterns (default: on)",
@@ -620,7 +620,7 @@ daemon
   .option("--interval-ms <ms>", "Ping interval in milliseconds")
   .option("-q, --quiet", "Suppress ping output", false)
   .option("--bell", "Ring terminal bell on ping failure", false)
-  .option("--notify", "Send desktop notification on ping failure", false)
+  .option("--notify", "Desktop notification on new windows and failures", false)
   .option("--smart-schedule <on|off>", "Smart scheduling (default: on)")
   .option("--auto-update", "Auto-restart on upgrade (for service installs)")
   .action(async (opts) => {

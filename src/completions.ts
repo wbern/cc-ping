@@ -17,7 +17,7 @@ function bashCompletion(): string {
   case "\${COMP_WORDS[1]}" in
     ping)
       if [[ "\${cur}" == -* ]]; then
-        COMPREPLY=( $(compgen -W "--parallel --quiet --json --group --bell --stagger" -- "\${cur}") )
+        COMPREPLY=( $(compgen -W "--parallel --quiet --json --group --bell --notify --stagger" -- "\${cur}") )
       else
         local handles=$(cc-ping list 2>/dev/null | sed 's/ *\\(.*\\) ->.*/\\1/')
         COMPREPLY=( $(compgen -W "\${handles}" -- "\${cur}") )
@@ -89,6 +89,7 @@ _cc_ping() {
             '--json[JSON output]' \\
             '--group[Filter by group]:group:' \\
             '--bell[Ring bell on failure]' \\
+            '--notify[Send notification on new windows and failures]' \\
             '--stagger[Delay between pings]:minutes:' \\
             '*:handle:->handles'
           if [[ $state == handles ]]; then
@@ -129,7 +130,7 @@ _cc_ping() {
                     '--interval[Ping interval in minutes]:minutes:' \\
                     '--quiet[Suppress ping output]' \\
                     '--bell[Ring bell on failure]' \\
-                    '--notify[Send notification on failure]'
+                    '--notify[Send notification on new windows and failures]'
                   ;;
                 status)
                   _arguments '--json[JSON output]'
@@ -171,6 +172,7 @@ complete -c cc-ping -n "__fish_seen_subcommand_from ping" -s q -l quiet -d "Supp
 complete -c cc-ping -n "__fish_seen_subcommand_from ping" -l json -d "JSON output"
 complete -c cc-ping -n "__fish_seen_subcommand_from ping" -s g -l group -r -d "Filter by group"
 complete -c cc-ping -n "__fish_seen_subcommand_from ping" -l bell -d "Ring bell on failure"
+complete -c cc-ping -n "__fish_seen_subcommand_from ping" -l notify -d "Send notification on new windows and failures"
 complete -c cc-ping -n "__fish_seen_subcommand_from ping" -l stagger -r -d "Delay between pings"
 complete -c cc-ping -n "__fish_seen_subcommand_from ping" -a "(cc-ping list 2>/dev/null | string replace -r ' *(.*) ->.*' '$1')"
 
@@ -187,7 +189,7 @@ complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and not __fish_seen_
 complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start install" -l interval -r -d "Ping interval in minutes"
 complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start install" -s q -l quiet -d "Suppress output"
 complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start install" -l bell -d "Ring bell on failure"
-complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start install" -l notify -d "Send notification on failure"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start install" -l notify -d "Send notification on new windows and failures"
 complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from status" -l json -d "JSON output"
 `;
 }

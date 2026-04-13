@@ -71,7 +71,7 @@ cc-ping list              # show configured accounts
 Or add accounts manually:
 
 ```bash
-cc-ping add my-account ~/.claude-accounts/my-account
+cc-ping add ~/.claude-accounts/my-account
 ```
 
 ## Usage
@@ -82,11 +82,11 @@ cc-ping ping alice bob                # ping specific accounts
 cc-ping ping --parallel               # ping all at once
 cc-ping ping --notify                 # desktop notification on new windows
 cc-ping ping --bell                   # terminal bell on failure
-cc-ping ping --stagger 5s             # wait 5s between each account
+cc-ping ping --stagger 5              # wait 5 min between each account
 cc-ping status                        # show account status table
 cc-ping suggest                       # which account should I use next?
 cc-ping next-reset                    # when does the next window expire?
-cc-ping daemon start --interval 300m  # auto-ping every 5 hours
+cc-ping daemon start                  # auto-ping every 5 hours
 cc-ping history                       # recent ping results
 ```
 
@@ -99,8 +99,8 @@ Ping configured accounts to start their quota windows. Pings accounts sequential
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--parallel` | `false` | Ping all accounts simultaneously |
-| `--stagger <duration>` | — | Wait between each account (e.g. `5s`, `1m`) |
-| `--notify` | `false` | Desktop notification when new windows open |
+| `--stagger <minutes\|auto>` | — | Delay between each account (minutes, or `auto`) |
+| `--notify` | `false` | Desktop notification on new windows and failures |
 | `--bell` | `false` | Terminal bell on failure |
 | `--json` | `false` | Output results as JSON |
 | `--quiet` | `false` | Suppress per-account output |
@@ -108,7 +108,7 @@ Ping configured accounts to start their quota windows. Pings accounts sequential
 
 ### `cc-ping status`
 
-Show all accounts with their quota window state — whether they have an active window, when it resets, and duplicate detection.
+Show all accounts with their quota window state — whether they have an active window, when it resets, whether they're covered by recent Claude Code usage, and duplicate detection.
 
 ### `cc-ping suggest`
 
@@ -126,9 +126,9 @@ Auto-discover Claude Code accounts. Scans `~` by default, or pass a directory to
 
 Verify that each configured account's config directory exists and has credentials.
 
-### `cc-ping add <handle> <config-dir>`
+### `cc-ping add <config-dir>`
 
-Manually add an account by name and Claude Code config directory path.
+Manually add an account by config directory path. The handle defaults to the directory name — override with `--name`.
 
 ### `cc-ping remove <handle>`
 
@@ -159,16 +159,16 @@ Send a test desktop notification to verify notifications work on your platform.
 The daemon auto-pings on a schedule so you don't have to remember.
 
 ```bash
-cc-ping daemon start --interval 300m   # every 5 hours
+cc-ping daemon start                   # every 5 hours (default)
 cc-ping daemon status                  # check if running, next ping time
 cc-ping daemon stop                    # graceful shutdown
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--interval <duration>` | `300m` | Time between ping cycles |
+| `--interval <minutes>` | `300` | Ping interval in minutes (300 = 5h quota window) |
 | `--smart-schedule <on\|off>` | `on` | Time pings based on your usage patterns |
-| `--notify` | `false` | Desktop notification when new windows open |
+| `--notify` | `false` | Desktop notification on new windows and failures |
 | `--bell` | `false` | Terminal bell on failure |
 | `--quiet` | `true` | Suppress per-account output in logs |
 
@@ -228,7 +228,7 @@ To disable: `cc-ping daemon start --smart-schedule off`
 `daemon start` runs as a detached process that won't survive a reboot. Use `daemon install` to register as a system service that starts automatically on login:
 
 ```bash
-cc-ping daemon install --interval 300m --notify   # install and start
+cc-ping daemon install --notify                   # install and start
 cc-ping daemon status                              # shows "System service: installed"
 cc-ping daemon uninstall                           # remove service and stop
 ```
