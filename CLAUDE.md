@@ -38,11 +38,9 @@ If knip or coverage fails, the commit is rejected. Fix the issue and create a ne
 - Detects system sleep via timer overshoot (>60s late)
 - Graceful stop: sentinel file polled every 500ms for up to 60s, then SIGTERM
 
-## Smart scheduling
-
 ## Releases
 
-Automated via semantic-release on push to `main`. Conventional commit types determine the version bump (`feat:` → minor, `fix:` → patch). No manual version bumps needed — CI handles npm publish and GitHub release creation.
+Automated via semantic-release on push to `main`. Conventional commit types determine the version bump (`feat:` → minor, `fix:` → patch). No manual version bumps needed. The full chain: semantic-release (npm publish + GitHub Release) → binaries.yml (Bun compile for 3 platforms + codesign + upload) → update-homebrew.yml (update wbern/homebrew-cc-ping tap with SHA256s). Bun is pinned to 1.3.11 due to a signing regression in 1.3.12 (oven-sh/bun#29120).
 
 ## Smart scheduling
 

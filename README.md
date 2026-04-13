@@ -23,12 +23,6 @@ Zero telemetry. No data is collected, sent, or phoned home. Everything stays in 
 claude --version   # verify it's available
 ```
 
-## Quick run (no install)
-
-```bash
-pnpm dlx @wbern/cc-ping ping
-```
-
 ## Install
 
 ### Standalone binary (recommended)
@@ -39,13 +33,7 @@ No Node.js required — downloads a single binary:
 curl -fsSL https://raw.githubusercontent.com/wbern/cc-ping/main/install.sh | bash
 ```
 
-Pin a specific version:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/wbern/cc-ping/main/install.sh | bash -s -- v1.15.0
-```
-
-Installs to `~/.local/bin` by default. Override with `CC_PING_INSTALL_DIR`.
+Installs to `~/.local/bin` by default. Override with `CC_PING_INSTALL_DIR`. You may need to restart your shell or add `~/.local/bin` to your PATH.
 
 ### Homebrew (macOS / Linux)
 
@@ -55,12 +43,18 @@ brew install wbern/cc-ping/cc-ping
 
 ### npm / pnpm
 
-```bash
-pnpm add -g @wbern/cc-ping
-```
+Requires Node.js:
 
 ```bash
+pnpm add -g @wbern/cc-ping
 npm install -g @wbern/cc-ping   # also works
+```
+
+### Quick run (no install)
+
+```bash
+pnpm dlx @wbern/cc-ping ping   # requires pnpm
+npx @wbern/cc-ping ping        # or npm
 ```
 
 ## Setup
