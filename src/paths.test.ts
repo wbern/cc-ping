@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveConfigDir, setConfigDir } from "./paths.js";
+import { resolveConfigDir, selfArgs, setConfigDir } from "./paths.js";
 
 describe("resolveConfigDir", () => {
   afterEach(() => {
@@ -33,5 +33,25 @@ describe("resolveConfigDir", () => {
     setConfigDir("");
     const result = resolveConfigDir();
     expect(result).toBe("/from/env");
+  });
+});
+
+describe("selfArgs", () => {
+  const originalArgv = process.argv;
+
+  afterEach(() => {
+    process.argv = originalArgv;
+  });
+
+  it("includes script path when argv[1] ends with .js", () => {
+    process.argv = ["/usr/local/bin/node", "/path/to/dist/cli.js", "daemon"];
+    const result = selfArgs();
+    expect(result).toEqual([process.execPath, "/path/to/dist/cli.js"]);
+  });
+
+  it("omits script path for compiled binaries", () => {
+    process.argv = ["/usr/local/bin/cc-ping", "daemon"];
+    const result = selfArgs();
+    expect(result).toEqual([process.execPath]);
   });
 });

@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+*.bun-build
 
 # Gas Town (added by gt)
 .runtime/

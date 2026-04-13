@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { homedir as nodeHomedir } from "node:os";
 import { dirname, join } from "node:path";
+import { selfArgs } from "./paths.js";
 
 // --- Types ---
 
@@ -65,10 +66,8 @@ export function resolveExecutable(deps: {
   } catch {
     // which failed, fall back
   }
-  return {
-    executable: process.execPath,
-    args: [process.argv[1]],
-  };
+  const [exe, ...prefix] = selfArgs();
+  return { executable: exe, args: prefix };
 }
 
 export function generateLaunchdPlist(

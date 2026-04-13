@@ -31,6 +31,30 @@ pnpm dlx @wbern/cc-ping ping
 
 ## Install
 
+### Standalone binary (recommended)
+
+No Node.js required — downloads a single binary:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/wbern/cc-ping/main/install.sh | bash
+```
+
+Pin a specific version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/wbern/cc-ping/main/install.sh | bash -s -- v1.15.0
+```
+
+Installs to `~/.local/bin` by default. Override with `CC_PING_INSTALL_DIR`.
+
+### Homebrew (macOS / Linux)
+
+```bash
+brew install wbern/cc-ping/cc-ping
+```
+
+### npm / pnpm
+
 ```bash
 pnpm add -g @wbern/cc-ping
 ```

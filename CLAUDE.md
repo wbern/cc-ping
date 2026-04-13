@@ -24,7 +24,7 @@ If knip or coverage fails, the commit is rejected. Fix the issue and create a ne
 ## Architecture
 
 - **Dependency injection**: All side effects are injected via `deps` params. Production defaults are in the function body; tests pass mocks. This pattern is used in `daemon.ts`, `service.ts`, `ping.ts`, `run-ping.ts`, and others.
-- **Single file per concern**: `ping.ts` (spawn claude), `run-ping.ts` (orchestrate + output), `daemon.ts` (loop + lifecycle), `service.ts` (launchd/systemd), `state.ts` (ping timestamps), `config.ts` (account CRUD).
+- **Single file per concern**: `ping.ts` (spawn claude), `run-ping.ts` (orchestrate + output), `daemon.ts` (loop + lifecycle), `service.ts` (launchd/systemd), `state.ts` (ping timestamps), `config.ts` (account CRUD), `format.ts` (date/time formatting helpers). `status.ts` re-exports from `format.ts` for backwards compatibility.
 - **No classes**: Everything is plain functions + interfaces.
 
 ## Timeout model
@@ -37,6 +37,12 @@ If knip or coverage fails, the commit is rejected. Fix the issue and create a ne
 - Retries only failed accounts once before sleeping
 - Detects system sleep via timer overshoot (>60s late)
 - Graceful stop: sentinel file polled every 500ms for up to 60s, then SIGTERM
+
+## Smart scheduling
+
+## Releases
+
+Automated via semantic-release on push to `main`. Conventional commit types determine the version bump (`feat:` → minor, `fix:` → patch). No manual version bumps needed — CI handles npm publish and GitHub release creation.
 
 ## Smart scheduling
 

@@ -1,0 +1,104 @@
+name: Update Homebrew Formula
+
+on:
+  workflow_run:
+    workflows: ["Build Binaries"]
+    types: [completed]
+
+jobs:
+  update-formula:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get latest release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(gh api repos/${{ github.repository }}/releases/latest --jq '.tag_name')
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download binaries and compute checksums
+        id: checksums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          for target in darwin-arm64 darwin-x64 linux-x64; do
+            gh release download "$TAG" \
+              --repo "${{ github.repository }}" \
+              --pattern "cc-ping-${target}" \
+              --dir .
+            SHA=$(sha256sum "cc-ping-${target}" | cut -d ' ' -f 1)
+            # Convert hyphens to underscores for output variable names
+            KEY=$(echo "$target" | tr '-' '_')
+            echo "sha_${KEY}=$SHA" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Checkout tap repo
+        uses: actions/checkout@v4
+        with:
+          repository: wbern/homebrew-cc-ping
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-cc-ping
+
+      - name: Update formula
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          SHA_DARWIN_ARM64: ${{ steps.checksums.outputs.sha_darwin_arm64 }}
+          SHA_DARWIN_X64: ${{ steps.checksums.outputs.sha_darwin_x64 }}
+          SHA_LINUX_X64: ${{ steps.checksums.outputs.sha_linux_x64 }}
+        run: |
+          cat > homebrew-cc-ping/Formula/cc-ping.rb << RUBY
+          class CcPing < Formula
+            desc "Ping Claude Code sessions to trigger quota windows across multiple accounts"
+            homepage "https://github.com/wbern/cc-ping"
+            license "MIT"
+            version "${VERSION}"
+
+            livecheck do
+              url "https://github.com/wbern/cc-ping/releases/latest"
+              regex(%r{href=.*?/tag/v)(\d+(?:\.\d+)+)(["' >])
+            end
+
+            if OS.mac?
+              if Hardware::CPU.arm?
+                url "https://github.com/wbern/cc-ping/releases/download/v#{version}/cc-ping-darwin-arm64"
+                sha256 "${SHA_DARWIN_ARM64}"
+              else
+                url "https://github.com/wbern/cc-ping/releases/download/v#{version}/cc-ping-darwin-x64"
+                sha256 "${SHA_DARWIN_X64}"
+              end
+            elsif OS.linux?
+              url "https://github.com/wbern/cc-ping/releases/download/v#{version}/cc-ping-linux-x64"
+              sha256 "${SHA_LINUX_X64}"
+            else
+              odie "cc-ping: unsupported platform"
+            end
+
+            def install
+              binary_name = if OS.mac?
+                Hardware::CPU.arm? ? "cc-ping-darwin-arm64" : "cc-ping-darwin-x64"
+              else
+                "cc-ping-linux-x64"
+              end
+              bin.install binary_name => "cc-ping"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/cc-ping --version")
+            end
+          end
+          RUBY
+
+      - name: Commit and push
+        run: |
+          cd homebrew-cc-ping
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/cc-ping.rb
+          git diff --cached --quiet && exit 0
+          git commit -m "cc-ping ${{ steps.release.outputs.version }}"
+          git push

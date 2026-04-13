@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { resolveConfigDir } from "./paths.js";
+import { resolveConfigDir, selfArgs } from "./paths.js";
 import type { DeferResult } from "./schedule.js";
 import { QUOTA_WINDOW_MS } from "./state.js";
 import type { AccountConfig, DaemonState } from "./types.js";
@@ -394,7 +394,8 @@ export function startDaemon(
   if (options.notify) args.push("--notify");
   if (options.smartSchedule === false) args.push("--smart-schedule", "off");
 
-  const child = _spawn(process.execPath, [process.argv[1], ...args], {
+  const [exe, ...prefix] = selfArgs();
+  const child = _spawn(exe, [...prefix, ...args], {
     detached: true,
     stdio: ["ignore", logFd, logFd],
     windowsHide: true,

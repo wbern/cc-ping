@@ -1,0 +1,73 @@
+name: Build Binaries
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: darwin-arm64
+            os: macos-latest
+          - target: darwin-x64
+            os: macos-latest
+          - target: linux-x64
+            os: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build binary
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+          bun build --compile --minify \
+            --define "__VERSION__=\"\\\"$VERSION\\\"\"" \
+            --target=bun-${{ matrix.target }} \
+            ./src/cli.ts --outfile cc-ping-${{ matrix.target }}
+
+      - name: Sign macOS binary
+        if: startsWith(matrix.target, 'darwin')
+        run: codesign -s - cc-ping-${{ matrix.target }}
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: cc-ping-${{ matrix.target }}
+          path: cc-ping-${{ matrix.target }}
+
+  checksums:
+    name: Upload release assets
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd binaries
+          sha256sum cc-ping-* > checksums.txt
+          cat checksums.txt
+
+      - name: Upload all to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd binaries
+          for f in cc-ping-* checksums.txt; do
+            gh release upload "${{ github.event.release.tag_name }}" "$f" --repo "${{ github.repository }}"
+          done
