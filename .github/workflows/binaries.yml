@@ -41,6 +41,7 @@ jobs:
 
       - name: Sign macOS binary
         if: startsWith(matrix.target, 'darwin')
+        continue-on-error: true
         run: codesign -s - cc-ping-${{ matrix.target }}
 
       - name: Upload binary
