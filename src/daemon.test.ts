@@ -1,4 +1,10 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,6 +33,8 @@ const {
   daemonStopPath,
   msUntilUtcHour,
   hasVersionChanged,
+  rotateLogFile,
+  formatDrift,
 } = await import("./daemon.js");
 const { QUOTA_WINDOW_MS } = await import("./state.js");
 
@@ -105,6 +113,79 @@ describe("daemon", () => {
       const now = new Date("2026-04-09T10:00:00Z");
       // 8 UTC already passed, should be ~22h until tomorrow 8 UTC
       expect(msUntilUtcHour(8, now)).toBe(22 * 3600_000);
+    });
+  });
+
+  describe("rotateLogFile", () => {
+    it("rotates log file when it exceeds max size", () => {
+      const logPath = join(configDir, "test.log");
+      writeFileSync(logPath, "x".repeat(1024));
+      rotateLogFile(logPath, 512);
+      expect(existsSync(logPath)).toBe(false);
+      expect(existsSync(`${logPath}.old`)).toBe(true);
+      expect(readFileSync(`${logPath}.old`, "utf-8")).toBe("x".repeat(1024));
+    });
+
+    it("does not rotate when file is under max size", () => {
+      const logPath = join(configDir, "test.log");
+      writeFileSync(logPath, "x".repeat(100));
+      rotateLogFile(logPath, 512);
+      expect(existsSync(logPath)).toBe(true);
+      expect(existsSync(`${logPath}.old`)).toBe(false);
+    });
+
+    it("does nothing when log file does not exist", () => {
+      const logPath = join(configDir, "nonexistent.log");
+      rotateLogFile(logPath);
+      expect(existsSync(logPath)).toBe(false);
+    });
+
+    it("rethrows non-ENOENT errors", () => {
+      // Stat on a path through a file (not a dir) triggers ENOTDIR
+      const filePath = join(configDir, "afile");
+      writeFileSync(filePath, "x");
+      const badPath = join(filePath, "nested.log");
+      expect(() => rotateLogFile(badPath)).toThrow();
+    });
+  });
+
+  describe("formatDrift", () => {
+    it("returns positive drift when actual is after optimal", () => {
+      expect(formatDrift(8, 15, 8)).toBe(
+        "08:15 UTC (optimal: 08:00, drift: +15m)",
+      );
+    });
+
+    it("returns negative drift when actual is before optimal", () => {
+      expect(formatDrift(7, 45, 8)).toBe(
+        "07:45 UTC (optimal: 08:00, drift: -15m)",
+      );
+    });
+
+    it("returns zero drift with no sign", () => {
+      expect(formatDrift(8, 0, 8)).toBe(
+        "08:00 UTC (optimal: 08:00, drift: 0m)",
+      );
+    });
+
+    it("wraps midnight positive: actual 01:00 optimal 23:00 → +120m", () => {
+      expect(formatDrift(1, 0, 23)).toBe(
+        "01:00 UTC (optimal: 23:00, drift: +120m)",
+      );
+    });
+
+    it("wraps midnight negative: actual 23:00 optimal 01:00 → -120m", () => {
+      expect(formatDrift(23, 0, 1)).toBe(
+        "23:00 UTC (optimal: 01:00, drift: -120m)",
+      );
+    });
+
+    it("returns null when drift exceeds 120 minutes", () => {
+      expect(formatDrift(12, 0, 8)).toBeNull();
+    });
+
+    it("returns null for large midnight-wrapped drift", () => {
+      expect(formatDrift(5, 0, 23)).toBeNull();
     });
   });
 
@@ -713,6 +794,29 @@ describe("daemon", () => {
       );
     });
 
+    it("shows 'later' in defer message when deferUntilUtcHour is undefined", async () => {
+      let calls = 0;
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          calls++;
+          return calls > 1;
+        }),
+        log: vi.fn(),
+        shouldDeferPing: vi.fn(() => ({ defer: true })),
+      };
+
+      await daemonLoop(60000, {}, deps);
+
+      expect(deps.log).toHaveBeenCalledWith(
+        "Deferring 1 account(s): alice → later",
+      );
+    });
+
     it("sleeps until soonest deferred account instead of full interval when all accounts deferred", async () => {
       let stopCalls = 0;
       const sleepFn = vi.fn().mockResolvedValue(undefined);
@@ -840,6 +944,56 @@ describe("daemon", () => {
       // Should sleep ~1h (bob's optimal at 9), not ~3h (alice's deferred at 11)
       expect(sleepMs).toBeGreaterThanOrEqual(1 * 60 * 60_000 - 1000);
       expect(sleepMs).toBeLessThanOrEqual(1 * 60 * 60_000 + 1000);
+    });
+
+    it("logs drift from optimal hour after pinging", async () => {
+      let stopCalls = 0;
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          stopCalls++;
+          return stopCalls > 1;
+        }),
+        log: vi.fn(),
+        getOptimalHour: vi.fn().mockReturnValue(8),
+        now: () => new Date("2026-04-09T08:03:00Z"),
+      };
+
+      await daemonLoop(60000, {}, deps);
+
+      expect(deps.log).toHaveBeenCalledWith(
+        "alice: pinged at 08:03 UTC (optimal: 08:00, drift: +3m)",
+      );
+    });
+
+    it("does not log drift when account has no optimal hour", async () => {
+      let stopCalls = 0;
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          stopCalls++;
+          return stopCalls > 1;
+        }),
+        log: vi.fn(),
+        getOptimalHour: vi.fn().mockReturnValue(undefined),
+        now: () => new Date("2026-04-09T08:03:00Z"),
+      };
+
+      await daemonLoop(60000, {}, deps);
+
+      const driftLogs = deps.log.mock.calls.filter(
+        (call: unknown[]) =>
+          typeof call[0] === "string" && call[0].includes("drift"),
+      );
+      expect(driftLogs).toHaveLength(0);
     });
 
     it("picks the soonest optimal hour across multiple accounts", async () => {
@@ -1008,6 +1162,27 @@ describe("daemon", () => {
 
       const spawnArgs = mockSpawn.mock.calls[0][1] as string[];
       expect(spawnArgs).not.toContain("--smart-schedule");
+    });
+
+    it("rotates log file before starting", () => {
+      const mockChild = { pid: 9876, unref: vi.fn() };
+      const rotateLog = vi.fn();
+
+      startDaemon(
+        {},
+        {
+          getDaemonStatus: () => ({ running: false }),
+          spawn: vi.fn().mockReturnValue(mockChild) as never,
+          writeDaemonState: vi.fn(),
+          openSync: vi.fn().mockReturnValue(3),
+          closeSync: vi.fn(),
+          rotateLog,
+        },
+      );
+
+      expect(rotateLog).toHaveBeenCalledWith(
+        expect.stringContaining("daemon.log"),
+      );
     });
 
     it("returns error and closes log fd when spawn fails (no pid)", () => {

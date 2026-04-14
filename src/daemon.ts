@@ -3,6 +3,8 @@ import {
   existsSync,
   closeSync as fsCloseSync,
   openSync as fsOpenSync,
+  renameSync as fsRenameSync,
+  statSync as fsStatSync,
   mkdirSync,
   readFileSync,
   unlinkSync,
@@ -32,6 +34,21 @@ export function daemonLogPath(): string {
 
 export function daemonStopPath(): string {
   return join(resolveConfigDir(), "daemon.stop");
+}
+
+// --- Log rotation ---
+
+const MAX_LOG_BYTES = 512 * 1024; // 512 KB
+
+export function rotateLogFile(logPath: string, maxBytes = MAX_LOG_BYTES): void {
+  try {
+    const stat = fsStatSync(logPath);
+    if (stat.size > maxBytes) {
+      fsRenameSync(logPath, `${logPath}.old`);
+    }
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
 }
 
 // --- PID file management ---
@@ -191,6 +208,26 @@ export function hasVersionChanged(
   }
 }
 
+export function formatDrift(
+  actualHour: number,
+  actualMinute: number,
+  optimalHour: number,
+): string | null {
+  const driftMin = actualHour * 60 + actualMinute - optimalHour * 60;
+  const wrapped =
+    driftMin > 720
+      ? driftMin - 1440
+      : driftMin < -720
+        ? driftMin + 1440
+        : driftMin;
+  if (Math.abs(wrapped) > 120) return null;
+  const sign = wrapped > 0 ? "+" : wrapped < 0 ? "-" : "";
+  const hh = String(actualHour).padStart(2, "0");
+  const mm = String(actualMinute).padStart(2, "0");
+  const oh = String(optimalHour).padStart(2, "0");
+  return `${hh}:${mm} UTC (optimal: ${oh}:00, drift: ${sign}${Math.abs(wrapped)}m)`;
+}
+
 // --- Daemon loop ---
 
 interface DaemonLoopDeps {
@@ -232,10 +269,15 @@ export async function daemonLoop(
     let accounts = deps.isWindowActive
       ? allAccounts.filter((a) => !deps.isWindowActive!(a.handle, a.configDir))
       : allAccounts;
-    const skipped = allAccounts.length - accounts.length;
+    const activeHandles = new Set(accounts.map((a) => a.handle));
+    const skippedHandles = allAccounts
+      .filter((a) => !activeHandles.has(a.handle))
+      .map((a) => a.handle);
 
-    if (skipped > 0) {
-      deps.log(`Skipping ${skipped} account(s) with active window`);
+    if (skippedHandles.length > 0) {
+      deps.log(
+        `Skipping ${skippedHandles.length} account(s) with active window: ${skippedHandles.join(", ")}`,
+      );
     }
 
     let soonestDeferHour: number | undefined;
@@ -247,7 +289,13 @@ export async function daemonLoop(
       const deferred = [...deferResults.entries()].filter(([, r]) => r.defer);
       if (deferred.length > 0) {
         accounts = accounts.filter((a) => !deferResults.get(a.handle)?.defer);
-        deps.log(`Deferring ${deferred.length} account(s) (smart scheduling)`);
+        const deferDetail = deferred
+          .map(
+            ([h, r]) =>
+              `${h} → ${r.deferUntilUtcHour !== undefined ? `${String(r.deferUntilUtcHour).padStart(2, "0")}:00 UTC` : "later"}`,
+          )
+          .join(", ");
+        deps.log(`Deferring ${deferred.length} account(s): ${deferDetail}`);
         // Track the soonest deferred hour for sleep calculation
         for (const [, r] of deferred) {
           if (
@@ -273,9 +321,7 @@ export async function daemonLoop(
             : "All accounts have active windows, waiting...",
       );
     } else {
-      deps.log(
-        `[${new Date().toISOString()}] Pinging ${accounts.length} account(s)...`,
-      );
+      deps.log(`Pinging ${accounts.length} account(s)...`);
       const pingOpts = {
         parallel: false,
         quiet: options.quiet ?? true,
@@ -284,6 +330,21 @@ export async function daemonLoop(
         wakeDelayMs,
       };
       const { failedHandles } = await deps.runPing(accounts, pingOpts);
+      if (deps.getOptimalHour) {
+        /* c8 ignore next -- production default */
+        const now = deps.now?.() ?? new Date();
+        for (const a of accounts) {
+          const hour = deps.getOptimalHour(a.handle, a.configDir);
+          if (hour !== undefined) {
+            const drift = formatDrift(
+              now.getUTCHours(),
+              now.getUTCMinutes(),
+              hour,
+            );
+            if (drift) deps.log(`${a.handle}: pinged at ${drift}`);
+          }
+        }
+      }
       if (failedHandles.length > 0 && !deps.shouldStop()) {
         const retryAccounts = accounts.filter((a) =>
           failedHandles.includes(a.handle),
@@ -346,6 +407,7 @@ interface StartDaemonDeps {
   writeDaemonState: (state: DaemonState) => void;
   openSync: (path: string, flags: string) => number;
   closeSync: (fd: number) => void;
+  rotateLog?: (logPath: string) => void;
 }
 
 export function startDaemon(
@@ -385,7 +447,9 @@ export function startDaemon(
   const configDir = resolveConfigDir();
   mkdirSync(configDir, { recursive: true });
 
+  const _rotateLog = deps?.rotateLog ?? rotateLogFile;
   const logPath = daemonLogPath();
+  _rotateLog(logPath);
   const logFd = _openSync(logPath, "a");
 
   const args = ["daemon", "_run", "--interval-ms", String(intervalMs)];
@@ -613,6 +677,9 @@ export async function runDaemonWithDefaults(
   const { checkRecentActivity, readAccountSchedule, shouldDefer } =
     await import("./schedule.js");
 
+  const tsLog = (msg: string) =>
+    console.log(`[${new Date().toISOString()}] ${msg}`);
+
   const smartScheduleEnabled = options.smartSchedule !== false;
   let shouldDeferPing:
     | ((handle: string, configDir: string) => DeferResult)
@@ -630,11 +697,11 @@ export async function runDaemonWithDefaults(
         resetAt,
       );
       if (schedule) {
-        console.log(
+        tsLog(
           `Smart schedule: ${account.handle} → optimal ping at ${schedule.optimalPingHour}:00 UTC`,
         );
       } else {
-        console.log(
+        tsLog(
           `Smart schedule: ${account.handle} → insufficient history, using fixed interval`,
         );
       }
@@ -665,7 +732,7 @@ export async function runDaemonWithDefaults(
           timeout: 5000,
         }).trim();
       } catch {
-        console.log(
+        tsLog(
           "Auto-update: cc-ping not found in PATH, version checks disabled",
         );
       }
@@ -685,7 +752,7 @@ export async function runDaemonWithDefaults(
     listAccounts,
     sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
     shouldStop: () => existsSync(stopPath),
-    log: (msg) => console.log(msg),
+    log: tsLog,
     isWindowActive: (handle, configDir) => {
       if (getWindowReset(handle) !== null) return true;
       return checkRecentActivity(configDir);
