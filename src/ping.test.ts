@@ -234,4 +234,12 @@ describe("formatExecError", () => {
     const err = new Error("ENOENT: command not found");
     expect(formatExecError(err)).toBe("ENOENT: command not found");
   });
+
+  it("returns aborted for ABORT_ERR code", () => {
+    const err = Object.assign(new Error("The operation was aborted"), {
+      code: "ABORT_ERR",
+      killed: true,
+    });
+    expect(formatExecError(err)).toBe("aborted");
+  });
 });

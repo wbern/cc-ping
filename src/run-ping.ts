@@ -15,6 +15,7 @@ interface RunPingOptions {
   notify?: boolean;
   staggerMs?: number;
   wakeDelayMs?: number;
+  signal?: AbortSignal;
   stdout?: (msg: string) => void;
   stderr?: (msg: string) => void;
   _sleep?: (ms: number) => Promise<void>;
@@ -57,12 +58,15 @@ export async function runPing(
         logger.log(`  waiting ${minutes}m before next ping...`);
         await sleep(options.staggerMs);
       }
-      const [result] = await pingAccounts([accounts[i]], {});
+      const [result] = await pingAccounts([accounts[i]], {
+        signal: options.signal,
+      });
       results.push(result);
     }
   } else {
     results = await pingAccounts(accounts, {
       parallel: options.parallel,
+      signal: options.signal,
     });
   }
 

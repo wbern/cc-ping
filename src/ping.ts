@@ -4,6 +4,9 @@ import { generatePrompt } from "./prompt.js";
 import type { AccountConfig, PingResult } from "./types.js";
 
 export function formatExecError(error: Error): string {
+  if ((error as NodeJS.ErrnoException).code === "ABORT_ERR") {
+    return "aborted";
+  }
   if ("killed" in error && (error as { killed: boolean }).killed) {
     return "timed out";
   }
@@ -17,7 +20,10 @@ export function formatExecError(error: Error): string {
 const PING_TIMEOUT_MS = 30_000;
 const KILL_GRACE_MS = 5_000;
 
-function pingOne(account: AccountConfig): Promise<PingResult> {
+function pingOne(
+  account: AccountConfig,
+  signal?: AbortSignal,
+): Promise<PingResult> {
   const start = Date.now();
 
   return new Promise((resolve) => {
@@ -39,6 +45,7 @@ function pingOne(account: AccountConfig): Promise<PingResult> {
         env: { ...process.env, CLAUDE_CONFIG_DIR: account.configDir },
         timeout: PING_TIMEOUT_MS,
         killSignal: "SIGKILL",
+        signal,
       },
       (error, stdout) => {
         /* c8 ignore next -- guard against hard-kill race */
@@ -98,14 +105,14 @@ function pingOne(account: AccountConfig): Promise<PingResult> {
 
 export async function pingAccounts(
   accounts: AccountConfig[],
-  options: { parallel?: boolean } = {},
+  options: { parallel?: boolean; signal?: AbortSignal } = {},
 ): Promise<PingResult[]> {
   if (options.parallel) {
-    return Promise.all(accounts.map(pingOne));
+    return Promise.all(accounts.map((a) => pingOne(a, options.signal)));
   }
   const results: PingResult[] = [];
   for (const account of accounts) {
-    results.push(await pingOne(account));
+    results.push(await pingOne(account, options.signal));
   }
   return results;
 }

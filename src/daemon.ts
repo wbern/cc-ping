@@ -51,6 +51,35 @@ export function rotateLogFile(logPath: string, maxBytes = MAX_LOG_BYTES): void {
   }
 }
 
+// --- Sleep watchdog ---
+//
+// libuv timers pause during macOS sleep (nodejs/node#20661). This means a ping
+// that's in-flight when the lid closes will appear to "run" for the entire
+// sleep duration — its execFile timeout doesn't fire until wake. The watchdog
+// polls Date.now() and, if an interval tick fires much later than scheduled,
+// treats the gap as system sleep and aborts the in-flight batch.
+
+const WATCHDOG_INTERVAL_MS = 1_000;
+const WATCHDOG_OVERSHOOT_MS = 5_000;
+
+interface Watchdog {
+  stop(): void;
+}
+
+export function createWatchdog(onOvershoot: () => void): Watchdog {
+  let lastTick = Date.now();
+  const timer = setInterval(() => {
+    const now = Date.now();
+    const gap = now - lastTick;
+    lastTick = now;
+    if (gap > WATCHDOG_INTERVAL_MS + WATCHDOG_OVERSHOOT_MS) {
+      onOvershoot();
+    }
+  }, WATCHDOG_INTERVAL_MS);
+  timer.unref?.();
+  return { stop: () => clearInterval(timer) };
+}
+
 // --- PID file management ---
 
 export function writeDaemonState(state: DaemonState): void {
@@ -239,6 +268,7 @@ interface DaemonLoopDeps {
       bell?: boolean;
       notify?: boolean;
       wakeDelayMs?: number;
+      signal?: AbortSignal;
     },
   ) => Promise<{ failedHandles: string[] }>;
   listAccounts: () => AccountConfig[];
@@ -251,6 +281,7 @@ interface DaemonLoopDeps {
   getOptimalHour?: (handle: string, configDir: string) => number | undefined;
   hasUpgraded?: () => boolean;
   now?: () => Date;
+  createWatchdog?: (onOvershoot: () => void) => Watchdog;
 }
 
 export async function daemonLoop(
@@ -329,7 +360,24 @@ export async function daemonLoop(
         notify: options.notify,
         wakeDelayMs,
       };
-      const { failedHandles } = await deps.runPing(accounts, pingOpts);
+      /* c8 ignore next -- production default */
+      const _createWatchdog = deps.createWatchdog ?? createWatchdog;
+      const runGuarded = async (accts: AccountConfig[]) => {
+        const controller = new AbortController();
+        const wd = _createWatchdog(() => {
+          deps.log("Detected system sleep, aborting in-flight ping(s)...");
+          controller.abort();
+        });
+        try {
+          return await deps.runPing(accts, {
+            ...pingOpts,
+            signal: controller.signal,
+          });
+        } finally {
+          wd.stop();
+        }
+      };
+      const { failedHandles } = await runGuarded(accounts);
       if (deps.getOptimalHour) {
         /* c8 ignore next -- production default */
         const now = deps.now?.() ?? new Date();
@@ -351,7 +399,7 @@ export async function daemonLoop(
         );
         if (retryAccounts.length > 0) {
           deps.log(`Retrying ${retryAccounts.length} account(s)...`);
-          const retry = await deps.runPing(retryAccounts, pingOpts);
+          const retry = await runGuarded(retryAccounts);
           if (retry.failedHandles.length > 0) {
             deps.log(`Retry failed for: ${retry.failedHandles.join(", ")}`);
           }

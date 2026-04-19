@@ -35,6 +35,7 @@ const {
   hasVersionChanged,
   rotateLogFile,
   formatDrift,
+  createWatchdog,
 } = await import("./daemon.js");
 const { QUOTA_WINDOW_MS } = await import("./state.js");
 
@@ -146,6 +147,44 @@ describe("daemon", () => {
       writeFileSync(filePath, "x");
       const badPath = join(filePath, "nested.log");
       expect(() => rotateLogFile(badPath)).toThrow();
+    });
+  });
+
+  describe("createWatchdog", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("does not call onOvershoot on normal ticks", () => {
+      vi.useFakeTimers();
+      const onOvershoot = vi.fn();
+      const wd = createWatchdog(onOvershoot);
+      vi.advanceTimersByTime(5_000);
+      wd.stop();
+      expect(onOvershoot).not.toHaveBeenCalled();
+    });
+
+    it("calls onOvershoot when tick gap exceeds threshold", () => {
+      const start = new Date("2026-04-18T00:00:00Z");
+      vi.useFakeTimers();
+      vi.setSystemTime(start);
+      const onOvershoot = vi.fn();
+      const wd = createWatchdog(onOvershoot);
+      vi.setSystemTime(new Date(start.getTime() + 60_000));
+      vi.advanceTimersToNextTimer();
+      wd.stop();
+      expect(onOvershoot).toHaveBeenCalledTimes(1);
+    });
+
+    it("stop clears the interval", () => {
+      vi.useFakeTimers();
+      const onOvershoot = vi.fn();
+      const wd = createWatchdog(onOvershoot);
+      wd.stop();
+      const start = Date.now();
+      vi.setSystemTime(start + 60_000);
+      vi.advanceTimersByTime(10_000);
+      expect(onOvershoot).not.toHaveBeenCalled();
     });
   });
 
@@ -456,8 +495,79 @@ describe("daemon", () => {
 
       expect(deps.runPing).toHaveBeenCalledWith(
         [{ handle: "alice", configDir: "/tmp/alice" }],
-        { parallel: false, quiet: true, bell: true, notify: true },
+        expect.objectContaining({
+          parallel: false,
+          quiet: true,
+          bell: true,
+          notify: true,
+          signal: expect.any(AbortSignal),
+        }),
       );
+    });
+
+    it("aborts the in-flight batch when watchdog detects sleep", async () => {
+      let calls = 0;
+      let overshootFn: (() => void) | undefined;
+      const stop = vi.fn();
+      const capturedSignals: AbortSignal[] = [];
+      const deps = {
+        runPing: vi.fn().mockImplementation(async (_, opts) => {
+          capturedSignals.push(opts.signal);
+          overshootFn?.();
+          return { failedHandles: [] };
+        }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          calls++;
+          return calls > 1;
+        }),
+        log: vi.fn(),
+        createWatchdog: (cb: () => void) => {
+          overshootFn = cb;
+          return { stop };
+        },
+      };
+
+      await daemonLoop(60000, {}, deps);
+
+      expect(capturedSignals[0].aborted).toBe(true);
+      expect(deps.log).toHaveBeenCalledWith(
+        "Detected system sleep, aborting in-flight ping(s)...",
+      );
+      expect(stop).toHaveBeenCalled();
+    });
+
+    it("uses a fresh controller for retry after watchdog abort", async () => {
+      let calls = 0;
+      let runPingCallCount = 0;
+      const capturedSignals: AbortSignal[] = [];
+      const deps = {
+        runPing: vi.fn().mockImplementation(async (_, opts) => {
+          runPingCallCount++;
+          capturedSignals.push(opts.signal);
+          return runPingCallCount === 1
+            ? { failedHandles: ["alice"] }
+            : { failedHandles: [] };
+        }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          calls++;
+          return calls > 2;
+        }),
+        log: vi.fn(),
+        createWatchdog: () => ({ stop: vi.fn() }),
+      };
+
+      await daemonLoop(60000, {}, deps);
+
+      expect(runPingCallCount).toBe(2);
+      expect(capturedSignals[0]).not.toBe(capturedSignals[1]);
     });
 
     it("sleeps for interval between pings", async () => {
