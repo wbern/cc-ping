@@ -46,6 +46,51 @@ export function getLastPingMeta(handle: string): PingMeta | null {
   return state.lastPingMeta?.[handle] ?? null;
 }
 
+export function clearPingState(handle: string): boolean {
+  const state = loadState();
+  let changed = false;
+  if (handle in state.lastPing) {
+    delete state.lastPing[handle];
+    changed = true;
+  }
+  if (state.lastPingMeta && handle in state.lastPingMeta) {
+    delete state.lastPingMeta[handle];
+    changed = true;
+  }
+  if (changed) saveState(state);
+  return changed;
+}
+
+function collectOrphans(state: PingState, activeHandles: string[]): string[] {
+  const active = new Set(activeHandles);
+  const orphans = new Set<string>();
+  for (const h of Object.keys(state.lastPing)) {
+    if (!active.has(h)) orphans.add(h);
+  }
+  if (state.lastPingMeta) {
+    for (const h of Object.keys(state.lastPingMeta)) {
+      if (!active.has(h)) orphans.add(h);
+    }
+  }
+  return [...orphans];
+}
+
+export function findOrphanHandles(activeHandles: string[]): string[] {
+  return collectOrphans(loadState(), activeHandles);
+}
+
+export function pruneOrphanState(activeHandles: string[]): string[] {
+  const state = loadState();
+  const orphans = collectOrphans(state, activeHandles);
+  if (orphans.length === 0) return [];
+  for (const h of orphans) {
+    delete state.lastPing[h];
+    if (state.lastPingMeta) delete state.lastPingMeta[h];
+  }
+  saveState(state);
+  return orphans;
+}
+
 export function getLastPing(handle: string): Date | null {
   const state = loadState();
   const iso = state.lastPing[handle];

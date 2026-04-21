@@ -20,6 +20,9 @@ const {
   getLastPingMeta,
   getWindowReset,
   formatTimeRemaining,
+  clearPingState,
+  findOrphanHandles,
+  pruneOrphanState,
 } = await import("./state.js");
 
 describe("state", () => {
@@ -191,6 +194,115 @@ describe("state", () => {
       recordPing("alice", new Date("2025-03-15T10:00:00.000Z"), meta);
       const result = getLastPingMeta("alice");
       expect(result).toEqual(meta);
+    });
+  });
+
+  describe("clearPingState", () => {
+    const meta = {
+      costUsd: 0.003,
+      inputTokens: 10,
+      outputTokens: 5,
+      model: "claude-sonnet-4-20250514",
+      sessionId: "sess-1",
+    };
+
+    it("removes timestamp and metadata for handle", () => {
+      recordPing("alice", new Date("2025-03-15T10:00:00.000Z"), meta);
+      expect(clearPingState("alice")).toBe(true);
+      const state = loadState();
+      expect(state.lastPing.alice).toBeUndefined();
+      expect(state.lastPingMeta?.alice).toBeUndefined();
+    });
+
+    it("removes timestamp when no metadata exists", () => {
+      recordPing("bob", new Date("2025-03-15T10:00:00.000Z"));
+      expect(clearPingState("bob")).toBe(true);
+      expect(loadState().lastPing.bob).toBeUndefined();
+    });
+
+    it("returns false for unknown handle", () => {
+      recordPing("alice", new Date("2025-03-15T10:00:00.000Z"));
+      expect(clearPingState("ghost")).toBe(false);
+      expect(loadState().lastPing.alice).toBe("2025-03-15T10:00:00.000Z");
+    });
+
+    it("removes only metadata when timestamp already absent", () => {
+      saveState({
+        lastPing: {},
+        lastPingMeta: { orphan: meta },
+      });
+      expect(clearPingState("orphan")).toBe(true);
+      expect(loadState().lastPingMeta?.orphan).toBeUndefined();
+    });
+  });
+
+  describe("findOrphanHandles", () => {
+    it("returns empty when no state exists", () => {
+      expect(findOrphanHandles(["alice"])).toEqual([]);
+    });
+
+    it("returns handles not in active set", () => {
+      recordPing("alice", new Date("2025-03-15T10:00:00.000Z"));
+      recordPing("bob", new Date("2025-03-15T10:00:00.000Z"));
+      recordPing("charlie", new Date("2025-03-15T10:00:00.000Z"));
+      const orphans = findOrphanHandles(["alice"]);
+      expect(orphans.sort()).toEqual(["bob", "charlie"]);
+    });
+
+    it("finds orphans present only in metadata", () => {
+      saveState({
+        lastPing: { alice: "2025-03-15T10:00:00.000Z" },
+        lastPingMeta: {
+          alice: {
+            costUsd: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            model: "m",
+            sessionId: "s",
+          },
+          stranded: {
+            costUsd: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            model: "m",
+            sessionId: "s",
+          },
+        },
+      });
+      expect(findOrphanHandles(["alice"])).toEqual(["stranded"]);
+    });
+  });
+
+  describe("pruneOrphanState", () => {
+    it("returns empty and writes nothing when no orphans", () => {
+      recordPing("alice", new Date("2025-03-15T10:00:00.000Z"));
+      expect(pruneOrphanState(["alice"])).toEqual([]);
+      expect(loadState().lastPing.alice).toBe("2025-03-15T10:00:00.000Z");
+    });
+
+    it("removes orphan entries from lastPing and lastPingMeta", () => {
+      const meta = {
+        costUsd: 0.003,
+        inputTokens: 10,
+        outputTokens: 5,
+        model: "m",
+        sessionId: "s",
+      };
+      recordPing("alice", new Date("2025-03-15T10:00:00.000Z"), meta);
+      recordPing("ghost", new Date("2025-03-10T10:00:00.000Z"), meta);
+      const removed = pruneOrphanState(["alice"]);
+      expect(removed).toEqual(["ghost"]);
+      const state = loadState();
+      expect(state.lastPing.ghost).toBeUndefined();
+      expect(state.lastPingMeta?.ghost).toBeUndefined();
+      expect(state.lastPing.alice).toBeDefined();
+      expect(state.lastPingMeta?.alice).toBeDefined();
+    });
+
+    it("handles state without lastPingMeta field", () => {
+      saveState({ lastPing: { ghost: "2025-03-15T10:00:00.000Z" } });
+      expect(pruneOrphanState([])).toEqual(["ghost"]);
+      expect(loadState().lastPing.ghost).toBeUndefined();
     });
   });
 

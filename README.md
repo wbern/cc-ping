@@ -132,7 +132,11 @@ Manually add an account by config directory path. The handle defaults to the dir
 
 ### `cc-ping remove <handle>`
 
-Remove an account from the configuration.
+Remove an account from the configuration. Also clears the account's last-ping state (timestamp and metadata). Ping history in `history.jsonl` is preserved as an audit log.
+
+### `cc-ping cleanup`
+
+Remove orphan state entries for handles that are no longer in the configuration — useful after account renames or manual config edits. Use `--dry-run` to preview without writing. Supports `--json` for scripted use. Does not touch `history.jsonl`.
 
 ### `cc-ping list`
 

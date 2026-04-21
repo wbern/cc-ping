@@ -39,6 +39,7 @@ import {
   shouldDefer,
 } from "./schedule.js";
 import { parseStagger } from "./stagger.js";
+import { findOrphanHandles, pruneOrphanState } from "./state.js";
 import type { DeferInfo } from "./status.js";
 import { getAccountStatuses, printAccountTable } from "./status.js";
 import { suggestAccount } from "./suggest.js";
@@ -371,6 +372,40 @@ program
     for (const entry of entries) {
       console.log(formatHistoryEntry(entry, now));
     }
+  });
+
+program
+  .command("cleanup")
+  .description("Remove orphan state entries for handles no longer configured")
+  .option("--dry-run", "Show what would be removed without writing", false)
+  .option("--json", "Output as JSON", false)
+  .action((opts) => {
+    const active = listAccounts().map((a) => a.handle);
+    const orphans = opts.dryRun
+      ? findOrphanHandles(active)
+      : pruneOrphanState(active);
+    if (opts.json) {
+      console.log(
+        JSON.stringify(
+          {
+            dryRun: !!opts.dryRun,
+            orphans,
+            allStateWiped: active.length === 0,
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+    if (orphans.length === 0) {
+      console.log("No orphan state entries");
+      return;
+    }
+    const verb = opts.dryRun ? "Would remove" : "Removed";
+    const scope = active.length === 0 ? " (no accounts configured)" : "";
+    console.log(`${verb} ${orphans.length} orphan handle(s)${scope}:`);
+    for (const h of orphans) console.log(`  ${h}`);
   });
 
 program

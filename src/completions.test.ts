@@ -14,6 +14,8 @@ describe("generateCompletion", () => {
     expect(script).toContain("daemon");
     expect(script).toContain("start stop status install uninstall");
     expect(script).toContain("install");
+    expect(script).toContain("cleanup");
+    expect(script).toContain("--dry-run");
   });
 
   it("generates zsh completion script", () => {
@@ -27,6 +29,8 @@ describe("generateCompletion", () => {
     expect(script).toContain("Start the daemon process");
     expect(script).toContain("Install as system service");
     expect(script).toContain("Remove system service");
+    expect(script).toContain("cleanup:Remove orphan state entries");
+    expect(script).toContain("--dry-run[Show what would be removed");
   });
 
   it("generates fish completion script", () => {
@@ -39,6 +43,8 @@ describe("generateCompletion", () => {
     expect(script).toContain("Start the daemon");
     expect(script).toContain("Install as system service");
     expect(script).toContain("Remove system service");
+    expect(script).toContain("-a cleanup");
+    expect(script).toContain("-l dry-run");
   });
 
   it("throws for unsupported shell", () => {

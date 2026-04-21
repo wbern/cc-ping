@@ -1,5 +1,5 @@
 const COMMANDS =
-  "ping scan add remove list status next-reset history suggest check completions moo daemon";
+  "ping scan add remove list status next-reset history suggest check cleanup completions moo daemon";
 
 function bashCompletion(): string {
   return `_cc_ping() {
@@ -28,6 +28,9 @@ function bashCompletion(): string {
       ;;
     list|history|status|next-reset|check)
       COMPREPLY=( $(compgen -W "--json" -- "\${cur}") )
+      ;;
+    cleanup)
+      COMPREPLY=( $(compgen -W "--dry-run --json" -- "\${cur}") )
       ;;
     completions)
       COMPREPLY=( $(compgen -W "bash zsh fish" -- "\${cur}") )
@@ -66,6 +69,7 @@ _cc_ping() {
     'history:Show ping history'
     'suggest:Suggest next account'
     'check:Verify account health'
+    'cleanup:Remove orphan state entries'
     'completions:Generate shell completions'
     'moo:Send a test notification'
     'daemon:Run auto-ping on a schedule'
@@ -103,6 +107,11 @@ _cc_ping() {
           ;;
         list|history|status|next-reset|check)
           _arguments '--json[JSON output]'
+          ;;
+        cleanup)
+          _arguments \\
+            '--dry-run[Show what would be removed without writing]' \\
+            '--json[JSON output]'
           ;;
         add)
           _arguments \
@@ -150,7 +159,7 @@ _cc_ping
 
 function fishCompletion(): string {
   return `# Fish completions for cc-ping
-set -l commands ping scan add remove list status next-reset history suggest check completions moo
+set -l commands ping scan add remove list status next-reset history suggest check cleanup completions moo
 
 complete -c cc-ping -f
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a ping -d "Ping configured accounts"
@@ -163,6 +172,7 @@ complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a next-reset
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a history -d "Show ping history"
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a suggest -d "Suggest next account"
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a check -d "Verify account health"
+complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a cleanup -d "Remove orphan state entries"
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a completions -d "Generate shell completions"
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a moo -d "Send a test notification"
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a daemon -d "Run auto-ping on a schedule"
@@ -177,6 +187,8 @@ complete -c cc-ping -n "__fish_seen_subcommand_from ping" -l stagger -r -d "Dela
 complete -c cc-ping -n "__fish_seen_subcommand_from ping" -a "(cc-ping list 2>/dev/null | string replace -r ' *(.*) ->.*' '$1')"
 
 complete -c cc-ping -n "__fish_seen_subcommand_from list history status next-reset check" -l json -d "JSON output"
+complete -c cc-ping -n "__fish_seen_subcommand_from cleanup" -l dry-run -d "Show what would be removed without writing"
+complete -c cc-ping -n "__fish_seen_subcommand_from cleanup" -l json -d "JSON output"
 complete -c cc-ping -n "__fish_seen_subcommand_from add" -s n -l name -r -d "Override handle"
 complete -c cc-ping -n "__fish_seen_subcommand_from add" -s g -l group -r -d "Assign group"
 complete -c cc-ping -n "__fish_seen_subcommand_from completions" -a "bash zsh fish"

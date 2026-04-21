@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveConfigDir } from "./paths.js";
+import { clearPingState } from "./state.js";
 import type { AccountConfig, Config } from "./types.js";
 
 export function loadConfig(): Config {
@@ -49,6 +50,7 @@ export function removeAccount(handle: string): boolean {
   config.accounts = config.accounts.filter((a) => a.handle !== handle);
   if (config.accounts.length === before) return false;
   saveConfig(config);
+  clearPingState(handle);
   return true;
 }
 

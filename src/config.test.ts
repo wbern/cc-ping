@@ -1,4 +1,10 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +26,7 @@ const {
   listAccounts,
   resetSchedule,
 } = await import("./config.js");
+const { recordPing, loadState } = await import("./state.js");
 
 describe("config", () => {
   beforeEach(() => {
@@ -85,6 +92,42 @@ describe("config", () => {
   it("returns false when removing non-existent account", () => {
     const removed = removeAccount("nope");
     expect(removed).toBe(false);
+  });
+
+  it("clears state entries for the removed account", () => {
+    addAccount("acct1", "/path1");
+    addAccount("acct2", "/path2");
+    recordPing("acct1", new Date("2025-03-15T10:00:00.000Z"), {
+      costUsd: 0.003,
+      inputTokens: 10,
+      outputTokens: 5,
+      model: "m",
+      sessionId: "s",
+    });
+    recordPing("acct2", new Date("2025-03-15T11:00:00.000Z"));
+    removeAccount("acct1");
+    const state = loadState();
+    expect(state.lastPing.acct1).toBeUndefined();
+    expect(state.lastPingMeta?.acct1).toBeUndefined();
+    expect(state.lastPing.acct2).toBe("2025-03-15T11:00:00.000Z");
+  });
+
+  it("leaves history.jsonl untouched when removing account", () => {
+    const homeDir = join(tmpdir(), `cc-ping-home-${process.pid}`);
+    const configDir = join(homeDir, ".config", "cc-ping");
+    mkdirSync(configDir, { recursive: true });
+    const historyPath = join(configDir, "history.jsonl");
+    const historyLine = `${JSON.stringify({
+      timestamp: "2025-03-15T10:00:00.000Z",
+      handle: "acct1",
+      success: true,
+      durationMs: 1234,
+    })}\n`;
+    writeFileSync(historyPath, historyLine);
+    addAccount("acct1", "/path1");
+    removeAccount("acct1");
+    expect(existsSync(historyPath)).toBe(true);
+    expect(readFileSync(historyPath, "utf-8")).toBe(historyLine);
   });
 
   it("adds an account with a group", () => {
