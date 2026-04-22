@@ -62,6 +62,10 @@ export function rotateLogFile(logPath: string, maxBytes = MAX_LOG_BYTES): void {
 const WATCHDOG_INTERVAL_MS = 1_000;
 const WATCHDOG_OVERSHOOT_MS = 5_000;
 
+// Settle delay after detected system wake. The first ping attempt immediately
+// after wake tends to fail because network/DNS/TLS hasn't fully re-established.
+const WAKE_SETTLE_MS = 5_000;
+
 interface Watchdog {
   stop(): void;
 }
@@ -352,6 +356,9 @@ export async function daemonLoop(
             : "All accounts have active windows, waiting...",
       );
     } else {
+      if (wakeDelayMs !== undefined) {
+        await deps.sleep(WAKE_SETTLE_MS);
+      }
       deps.log(`Pinging ${accounts.length} account(s)...`);
       const pingOpts = {
         parallel: false,
@@ -364,20 +371,24 @@ export async function daemonLoop(
       const _createWatchdog = deps.createWatchdog ?? createWatchdog;
       const runGuarded = async (accts: AccountConfig[]) => {
         const controller = new AbortController();
+        let aborted = false;
         const wd = _createWatchdog(() => {
           deps.log("Detected system sleep, aborting in-flight ping(s)...");
+          aborted = true;
           controller.abort();
         });
         try {
-          return await deps.runPing(accts, {
+          const result = await deps.runPing(accts, {
             ...pingOpts,
             signal: controller.signal,
           });
+          return { ...result, aborted };
         } finally {
           wd.stop();
         }
       };
-      const { failedHandles } = await runGuarded(accounts);
+      const { failedHandles, aborted: firstAborted } =
+        await runGuarded(accounts);
       if (deps.getOptimalHour) {
         /* c8 ignore next -- production default */
         const now = deps.now?.() ?? new Date();
@@ -398,6 +409,9 @@ export async function daemonLoop(
           failedHandles.includes(a.handle),
         );
         if (retryAccounts.length > 0) {
+          if (firstAborted) {
+            await deps.sleep(WAKE_SETTLE_MS);
+          }
           deps.log(`Retrying ${retryAccounts.length} account(s)...`);
           const retry = await runGuarded(retryAccounts);
           if (retry.failedHandles.length > 0) {

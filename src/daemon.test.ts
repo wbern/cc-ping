@@ -570,6 +570,78 @@ describe("daemon", () => {
       expect(capturedSignals[0]).not.toBe(capturedSignals[1]);
     });
 
+    it("settles before retry when watchdog aborted the first attempt", async () => {
+      let stopCalls = 0;
+      let runPingCallCount = 0;
+      let overshootFn: (() => void) | undefined;
+      const deps = {
+        runPing: vi.fn().mockImplementation(async () => {
+          runPingCallCount++;
+          if (runPingCallCount === 1) {
+            overshootFn?.();
+            return { failedHandles: ["alice"] };
+          }
+          return { failedHandles: [] };
+        }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          stopCalls++;
+          return stopCalls > 2;
+        }),
+        log: vi.fn(),
+        createWatchdog: (cb: () => void) => {
+          overshootFn = cb;
+          return { stop: vi.fn() };
+        },
+      };
+
+      await daemonLoop(60_000, {}, deps);
+
+      expect(deps.runPing).toHaveBeenCalledTimes(2);
+      // First sleep call is the settle before retry (< interval),
+      // not the between-iteration interval sleep.
+      const firstSleep = deps.sleep.mock.calls[0]?.[0];
+      expect(firstSleep).toBeGreaterThan(0);
+      expect(firstSleep).toBeLessThan(60_000);
+      const settleOrder = deps.sleep.mock.invocationCallOrder[0];
+      const retryPingOrder = deps.runPing.mock.invocationCallOrder[1];
+      expect(settleOrder).toBeLessThan(retryPingOrder);
+    });
+
+    it("does not settle before retry when watchdog did not fire", async () => {
+      let stopCalls = 0;
+      let runPingCallCount = 0;
+      const deps = {
+        runPing: vi.fn().mockImplementation(async () => {
+          runPingCallCount++;
+          return runPingCallCount === 1
+            ? { failedHandles: ["alice"] }
+            : { failedHandles: [] };
+        }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          stopCalls++;
+          return stopCalls > 2;
+        }),
+        log: vi.fn(),
+        createWatchdog: () => ({ stop: vi.fn() }),
+      };
+
+      await daemonLoop(60_000, {}, deps);
+
+      expect(deps.runPing).toHaveBeenCalledTimes(2);
+      // All sleep calls should be the full interval — no settle inserted.
+      for (const call of deps.sleep.mock.calls) {
+        expect(call[0]).toBeGreaterThanOrEqual(60_000);
+      }
+    });
+
     it("sleeps for interval between pings", async () => {
       let calls = 0;
       const deps = {
@@ -794,6 +866,79 @@ describe("daemon", () => {
       const secondCallOpts = deps.runPing.mock.calls[1][1];
       expect(secondCallOpts.wakeDelayMs).toBeGreaterThan(60_000);
       expect(deps.log).toHaveBeenCalledWith(expect.stringContaining("late"));
+    });
+
+    it("settles before the first ping after a detected late wake", async () => {
+      let stopCalls = 0;
+      let sleepCount = 0;
+      const now = vi.spyOn(Date, "now");
+      let clock = 1000000;
+      now.mockImplementation(() => clock);
+
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockImplementation(async (ms: number) => {
+          sleepCount++;
+          clock += ms;
+          // Only the first iteration's interval sleep triggers overshoot
+          if (sleepCount === 1) clock += 120_000;
+        }),
+        shouldStop: vi.fn(() => {
+          stopCalls++;
+          return stopCalls > 3;
+        }),
+        log: vi.fn(),
+      };
+
+      await daemonLoop(60_000, {}, deps);
+      now.mockRestore();
+
+      expect(deps.runPing).toHaveBeenCalledTimes(2);
+      // Sleep order expected: interval(60s), settle(<60s), then loop exits
+      expect(deps.sleep.mock.calls[0][0]).toBe(60_000);
+      const settleCall = deps.sleep.mock.calls[1]?.[0];
+      expect(settleCall).toBeGreaterThan(0);
+      expect(settleCall).toBeLessThan(60_000);
+      // The settle must occur before the second runPing invocation
+      const settleOrder = deps.sleep.mock.invocationCallOrder[1];
+      const secondPingOrder = deps.runPing.mock.invocationCallOrder[1];
+      expect(settleOrder).toBeLessThan(secondPingOrder);
+    });
+
+    it("does not settle when sleep overshoot is under 60s", async () => {
+      let stopCalls = 0;
+      let sleepCount = 0;
+      const now = vi.spyOn(Date, "now");
+      let clock = 1000000;
+      now.mockImplementation(() => clock);
+
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockImplementation(async (ms: number) => {
+          sleepCount++;
+          clock += ms;
+          if (sleepCount === 1) clock += 30_000;
+        }),
+        shouldStop: vi.fn(() => {
+          stopCalls++;
+          return stopCalls > 3;
+        }),
+        log: vi.fn(),
+      };
+
+      await daemonLoop(60_000, {}, deps);
+      now.mockRestore();
+
+      expect(deps.runPing).toHaveBeenCalledTimes(2);
+      for (const call of deps.sleep.mock.calls) {
+        expect(call[0]).toBeGreaterThanOrEqual(60_000);
+      }
     });
 
     it("does not pass wakeDelayMs when sleep overshoot is under 60s", async () => {
