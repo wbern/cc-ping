@@ -79,16 +79,11 @@ function pingOne(
     );
 
     // Hard kill: if callback hasn't fired after timeout + grace, force-resolve
-    /* c8 ignore start -- race-condition guard + defensive kill */
     const hardKillTimer = setTimeout(() => {
+      /* c8 ignore next -- race-condition guard */
       if (resolved) return;
       resolved = true;
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        // Process may have already exited
-      }
-      /* c8 ignore stop */
+      child.kill("SIGKILL");
       resolve({
         handle: account.handle,
         success: false,

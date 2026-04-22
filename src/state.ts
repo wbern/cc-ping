@@ -1,9 +1,21 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { resolveConfigDir } from "./paths.js";
 import type { PingMeta, PingState } from "./types.js";
 
 export const QUOTA_WINDOW_MS = 5 * 60 * 60 * 1000; // 5 hours
+
+interface SaveStateDeps {
+  mkdirSync: (path: string, opts: { recursive: boolean }) => void;
+  writeFileSync: (path: string, data: string) => void;
+  renameSync: (from: string, to: string) => void;
+}
 
 export function loadState(): PingState {
   const stateFile = join(resolveConfigDir(), "state.json");
@@ -14,17 +26,29 @@ export function loadState(): PingState {
     const raw = readFileSync(stateFile, "utf-8");
     return JSON.parse(raw) as PingState;
   } catch {
+    try {
+      renameSync(stateFile, `${stateFile}.corrupt`);
+      /* c8 ignore start -- quarantine is best-effort; preserve no-throw contract */
+    } catch {}
+    /* c8 ignore stop */
     return { lastPing: {} };
   }
 }
 
-export function saveState(state: PingState): void {
+export function saveState(
+  state: PingState,
+  deps?: Partial<SaveStateDeps>,
+): void {
+  /* c8 ignore next 3 -- production defaults */
+  const _mkdirSync = deps?.mkdirSync ?? mkdirSync;
+  const _writeFileSync = deps?.writeFileSync ?? writeFileSync;
+  const _renameSync = deps?.renameSync ?? renameSync;
   const configDir = resolveConfigDir();
-  mkdirSync(configDir, { recursive: true });
-  writeFileSync(
-    join(configDir, "state.json"),
-    `${JSON.stringify(state, null, 2)}\n`,
-  );
+  _mkdirSync(configDir, { recursive: true });
+  const target = join(configDir, "state.json");
+  const tmp = `${target}.tmp`;
+  _writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`);
+  _renameSync(tmp, target);
 }
 
 export function recordPing(

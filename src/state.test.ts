@@ -1,4 +1,11 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -57,6 +64,22 @@ describe("state", () => {
       writeFileSync(join(stateDir, "state.json"), "not json{{{");
       expect(loadState()).toEqual({ lastPing: {} });
     });
+
+    it("quarantines a corrupt state file instead of silently discarding it", () => {
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(join(stateDir, "state.json"), "not json{{{");
+
+      loadState();
+
+      const quarantined = readdirSync(stateDir).filter((f) =>
+        f.startsWith("state.json.corrupt"),
+      );
+      expect(quarantined).toHaveLength(1);
+      expect(readFileSync(join(stateDir, quarantined[0]), "utf-8")).toBe(
+        "not json{{{",
+      );
+      expect(existsSync(join(stateDir, "state.json"))).toBe(false);
+    });
   });
 
   describe("saveState", () => {
@@ -64,6 +87,35 @@ describe("state", () => {
       saveState({ lastPing: { bob: "2025-06-01T12:00:00.000Z" } });
       const loaded = loadState();
       expect(loaded.lastPing.bob).toBe("2025-06-01T12:00:00.000Z");
+    });
+
+    it("writes through a temp file then renames into place", () => {
+      const writes: Array<[string, string]> = [];
+      const renames: Array<[string, string]> = [];
+      saveState(
+        { lastPing: { alice: "2026-01-01T00:00:00.000Z" } },
+        {
+          mkdirSync: () => undefined,
+          writeFileSync: (p, data) => {
+            writes.push([p, data]);
+          },
+          renameSync: (from, to) => {
+            renames.push([from, to]);
+          },
+        },
+      );
+
+      expect(writes).toHaveLength(1);
+      const [writtenPath, payload] = writes[0];
+      expect(writtenPath).not.toMatch(/state\.json$/);
+      expect(writtenPath).toMatch(/state\.json/);
+      expect(JSON.parse(payload).lastPing.alice).toBe(
+        "2026-01-01T00:00:00.000Z",
+      );
+
+      expect(renames).toHaveLength(1);
+      expect(renames[0][0]).toBe(writtenPath);
+      expect(renames[0][1]).toMatch(/state\.json$/);
     });
   });
 

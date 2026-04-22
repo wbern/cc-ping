@@ -72,11 +72,13 @@ interface Watchdog {
 
 export function createWatchdog(onOvershoot: () => void): Watchdog {
   let lastTick = Date.now();
+  let fired = false;
   const timer = setInterval(() => {
     const now = Date.now();
     const gap = now - lastTick;
     lastTick = now;
-    if (gap > WATCHDOG_INTERVAL_MS + WATCHDOG_OVERSHOOT_MS) {
+    if (!fired && gap > WATCHDOG_INTERVAL_MS + WATCHDOG_OVERSHOOT_MS) {
+      fired = true;
       onOvershoot();
     }
   }, WATCHDOG_INTERVAL_MS);
@@ -226,7 +228,7 @@ export function msUntilUtcHour(targetHour: number, now: Date): number {
     now.getUTCMilliseconds();
   const targetMs = targetHour * 3600_000;
   const diff = targetMs - currentMs;
-  return diff > 0 ? diff : diff + 24 * 3600_000;
+  return diff >= 0 ? diff : diff + 24 * 3600_000;
 }
 
 export function hasVersionChanged(
@@ -285,6 +287,7 @@ interface DaemonLoopDeps {
   getOptimalHour?: (handle: string, configDir: string) => number | undefined;
   hasUpgraded?: () => boolean;
   now?: () => Date;
+  monotonicNow?: () => number;
   createWatchdog?: (onOvershoot: () => void) => Watchdog;
 }
 
@@ -448,9 +451,11 @@ export async function daemonLoop(
       }
     }
     deps.log(`Sleeping ${Math.round(sleepMs / 60_000)}m until next ping...`);
-    const sleepStart = Date.now();
+    /* c8 ignore next -- production default */
+    const _monotonicNow = deps.monotonicNow ?? (() => performance.now());
+    const sleepStart = _monotonicNow();
     await deps.sleep(sleepMs);
-    const overshootMs = Date.now() - sleepStart - sleepMs;
+    const overshootMs = _monotonicNow() - sleepStart - sleepMs;
     if (overshootMs > 60_000) {
       wakeDelayMs = overshootMs;
       deps.log(`Woke ${formatUptime(overshootMs)} late (system sleep?)`);

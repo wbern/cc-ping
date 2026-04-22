@@ -115,6 +115,13 @@ describe("daemon", () => {
       // 8 UTC already passed, should be ~22h until tomorrow 8 UTC
       expect(msUntilUtcHour(8, now)).toBe(22 * 3600_000);
     });
+
+    it("returns 0 when now is exactly at the target hour", () => {
+      const now = new Date("2026-04-09T08:00:00.000Z");
+      // At exactly 08:00:00.000 UTC, the 08:00 ping slot is NOW — the caller
+      // should not sleep 24h before taking it.
+      expect(msUntilUtcHour(8, now)).toBe(0);
+    });
   });
 
   describe("rotateLogFile", () => {
@@ -171,6 +178,20 @@ describe("daemon", () => {
       const onOvershoot = vi.fn();
       const wd = createWatchdog(onOvershoot);
       vi.setSystemTime(new Date(start.getTime() + 60_000));
+      vi.advanceTimersToNextTimer();
+      wd.stop();
+      expect(onOvershoot).toHaveBeenCalledTimes(1);
+    });
+
+    it("calls onOvershoot at most once even across multiple overshoot ticks", () => {
+      const start = new Date("2026-04-18T00:00:00Z");
+      vi.useFakeTimers();
+      vi.setSystemTime(start);
+      const onOvershoot = vi.fn();
+      const wd = createWatchdog(onOvershoot);
+      vi.setSystemTime(new Date(start.getTime() + 60_000));
+      vi.advanceTimersToNextTimer();
+      vi.setSystemTime(new Date(start.getTime() + 120_000));
       vi.advanceTimersToNextTimer();
       wd.stop();
       expect(onOvershoot).toHaveBeenCalledTimes(1);
@@ -855,6 +876,7 @@ describe("daemon", () => {
           return stopCalls > 3;
         }),
         log: vi.fn(),
+        monotonicNow: () => clock,
       };
 
       await daemonLoop(60000, { notify: true }, deps);
@@ -891,6 +913,7 @@ describe("daemon", () => {
           return stopCalls > 3;
         }),
         log: vi.fn(),
+        monotonicNow: () => clock,
       };
 
       await daemonLoop(60_000, {}, deps);
@@ -906,6 +929,45 @@ describe("daemon", () => {
       const settleOrder = deps.sleep.mock.invocationCallOrder[1];
       const secondPingOrder = deps.runPing.mock.invocationCallOrder[1];
       expect(settleOrder).toBeLessThan(secondPingOrder);
+    });
+
+    it("detects wake via monotonic clock even when Date.now stays stable", async () => {
+      let stopCalls = 0;
+      let sleepCount = 0;
+      let monoT = 1_000_000;
+      // Wall clock is frozen — no backward jump needed to prove the point,
+      // the absence of any wall-clock advance is already enough to break a
+      // Date.now-based overshoot calculation.
+      const now = vi.spyOn(Date, "now").mockReturnValue(5_000_000);
+
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockImplementation(async (ms: number) => {
+          sleepCount++;
+          monoT += ms;
+          // Monotonic clock reflects a real 120s overshoot on the first sleep
+          if (sleepCount === 1) monoT += 120_000;
+        }),
+        shouldStop: vi.fn(() => {
+          stopCalls++;
+          return stopCalls > 3;
+        }),
+        log: vi.fn(),
+        monotonicNow: () => monoT,
+      };
+
+      await daemonLoop(60_000, {}, deps);
+      now.mockRestore();
+
+      // Wake was real (monotonic clock advanced 180s across a 60s sleep),
+      // so the second ping should be preceded by a settle (< 60s) sleep.
+      expect(deps.runPing).toHaveBeenCalledTimes(2);
+      const settleCall = deps.sleep.mock.calls[1]?.[0];
+      expect(settleCall).toBeGreaterThan(0);
+      expect(settleCall).toBeLessThan(60_000);
     });
 
     it("does not settle when sleep overshoot is under 60s", async () => {
