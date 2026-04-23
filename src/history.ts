@@ -33,9 +33,14 @@ export function readHistory(limit?: number): HistoryEntry[] {
   if (!existsSync(file)) return [];
   const content = readFileSync(file, "utf-8").trim();
   if (!content) return [];
-  const entries = content
-    .split("\n")
-    .map((line) => JSON.parse(line) as HistoryEntry);
+  const entries: HistoryEntry[] = [];
+  for (const line of content.split("\n")) {
+    try {
+      entries.push(JSON.parse(line) as HistoryEntry);
+    } catch {
+      // skip malformed line (e.g. truncated by a partial write)
+    }
+  }
   if (limit !== undefined && limit < entries.length) {
     return entries.slice(-limit);
   }

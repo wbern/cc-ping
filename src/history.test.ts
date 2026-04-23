@@ -83,6 +83,26 @@ describe("appendHistoryEntry", () => {
     expect(entries).toEqual([]);
   });
 
+  it("skips malformed JSON lines instead of throwing", () => {
+    mkdirSync(configDir, { recursive: true });
+    const good = JSON.stringify({
+      timestamp: "2025-01-01T00:00:00.000Z",
+      handle: "alice",
+      success: true,
+      durationMs: 100,
+    });
+    const truncated = `{"timestamp":"2025-01-01T01:00:00.000Z","handle":"bo`;
+    writeFileSync(
+      join(configDir, "history.jsonl"),
+      `${good}\n${truncated}\n${good}\n`,
+    );
+
+    const entries = readHistory();
+    expect(entries).toHaveLength(2);
+    expect(entries[0].handle).toBe("alice");
+    expect(entries[1].handle).toBe("alice");
+  });
+
   it("returns only the last N entries when limit is specified", () => {
     for (let i = 0; i < 5; i++) {
       appendHistoryEntry({
