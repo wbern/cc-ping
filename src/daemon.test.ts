@@ -561,6 +561,89 @@ describe("daemon", () => {
       expect(stop).toHaveBeenCalled();
     });
 
+    it("waits with exponential backoff between retries (5s, then 15s)", async () => {
+      let calls = 0;
+      let runPingCallCount = 0;
+      const sleepCalls: number[] = [];
+      const deps = {
+        runPing: vi.fn().mockImplementation(async () => {
+          runPingCallCount++;
+          return runPingCallCount < 3
+            ? { failedHandles: ["alice"] }
+            : { failedHandles: [] };
+        }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockImplementation(async (ms: number) => {
+          sleepCalls.push(ms);
+        }),
+        shouldStop: vi.fn(() => {
+          calls++;
+          return calls > 3;
+        }),
+        log: vi.fn(),
+        createWatchdog: () => ({ stop: vi.fn() }),
+      };
+
+      await daemonLoop(60000, {}, deps);
+
+      expect(sleepCalls).toContain(5000);
+      expect(sleepCalls).toContain(15000);
+    });
+
+    it("retries up to 2 additional times when previous attempts keep failing", async () => {
+      let calls = 0;
+      let runPingCallCount = 0;
+      const deps = {
+        runPing: vi.fn().mockImplementation(async () => {
+          runPingCallCount++;
+          return runPingCallCount < 3
+            ? { failedHandles: ["alice"] }
+            : { failedHandles: [] };
+        }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          calls++;
+          return calls > 3;
+        }),
+        log: vi.fn(),
+        createWatchdog: () => ({ stop: vi.fn() }),
+      };
+
+      await daemonLoop(60000, {}, deps);
+
+      expect(runPingCallCount).toBe(3);
+    });
+
+    it("passes quietFailure on all attempts except the final one", async () => {
+      let calls = 0;
+      const capturedQuietFailure: (boolean | undefined)[] = [];
+      const deps = {
+        runPing: vi.fn().mockImplementation(async (_, opts) => {
+          capturedQuietFailure.push(opts.quietFailure);
+          return { failedHandles: ["alice"] };
+        }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          calls++;
+          return calls > 3;
+        }),
+        log: vi.fn(),
+        createWatchdog: () => ({ stop: vi.fn() }),
+      };
+
+      await daemonLoop(60000, {}, deps);
+
+      expect(capturedQuietFailure).toEqual([true, true, false]);
+    });
+
     it("uses a fresh controller for retry after watchdog abort", async () => {
       let calls = 0;
       let runPingCallCount = 0;
@@ -630,37 +713,6 @@ describe("daemon", () => {
       const settleOrder = deps.sleep.mock.invocationCallOrder[0];
       const retryPingOrder = deps.runPing.mock.invocationCallOrder[1];
       expect(settleOrder).toBeLessThan(retryPingOrder);
-    });
-
-    it("does not settle before retry when watchdog did not fire", async () => {
-      let stopCalls = 0;
-      let runPingCallCount = 0;
-      const deps = {
-        runPing: vi.fn().mockImplementation(async () => {
-          runPingCallCount++;
-          return runPingCallCount === 1
-            ? { failedHandles: ["alice"] }
-            : { failedHandles: [] };
-        }),
-        listAccounts: vi
-          .fn()
-          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
-        sleep: vi.fn().mockResolvedValue(undefined),
-        shouldStop: vi.fn(() => {
-          stopCalls++;
-          return stopCalls > 2;
-        }),
-        log: vi.fn(),
-        createWatchdog: () => ({ stop: vi.fn() }),
-      };
-
-      await daemonLoop(60_000, {}, deps);
-
-      expect(deps.runPing).toHaveBeenCalledTimes(2);
-      // All sleep calls should be the full interval — no settle inserted.
-      for (const call of deps.sleep.mock.calls) {
-        expect(call[0]).toBeGreaterThanOrEqual(60_000);
-      }
     });
 
     it("sleeps for interval between pings", async () => {
@@ -810,13 +862,10 @@ describe("daemon", () => {
       ]);
     });
 
-    it("logs failed handles when retry also fails", async () => {
+    it("logs failed handles when all retry attempts also fail", async () => {
       let loopCalls = 0;
       const deps = {
-        runPing: vi
-          .fn()
-          .mockResolvedValueOnce({ failedHandles: ["alice"] })
-          .mockResolvedValueOnce({ failedHandles: ["alice"] }),
+        runPing: vi.fn().mockResolvedValue({ failedHandles: ["alice"] }),
         listAccounts: vi.fn().mockReturnValue([
           { handle: "alice", configDir: "/tmp/alice" },
           { handle: "bob", configDir: "/tmp/bob" },
@@ -824,7 +873,7 @@ describe("daemon", () => {
         sleep: vi.fn().mockResolvedValue(undefined),
         shouldStop: vi.fn(() => {
           loopCalls++;
-          return loopCalls > 2;
+          return loopCalls > 3;
         }),
         log: vi.fn(),
       };

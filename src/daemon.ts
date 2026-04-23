@@ -273,6 +273,7 @@ interface DaemonLoopDeps {
       quiet: boolean;
       bell?: boolean;
       notify?: boolean;
+      quietFailure?: boolean;
       wakeDelayMs?: number;
       signal?: AbortSignal;
     },
@@ -372,7 +373,10 @@ export async function daemonLoop(
       };
       /* c8 ignore next -- production default */
       const _createWatchdog = deps.createWatchdog ?? createWatchdog;
-      const runGuarded = async (accts: AccountConfig[]) => {
+      const runGuarded = async (
+        accts: AccountConfig[],
+        quietFailure: boolean,
+      ) => {
         const controller = new AbortController();
         let aborted = false;
         const wd = _createWatchdog(() => {
@@ -383,6 +387,7 @@ export async function daemonLoop(
         try {
           const result = await deps.runPing(accts, {
             ...pingOpts,
+            quietFailure,
             signal: controller.signal,
           });
           return { ...result, aborted };
@@ -390,8 +395,10 @@ export async function daemonLoop(
           wd.stop();
         }
       };
-      const { failedHandles, aborted: firstAborted } =
-        await runGuarded(accounts);
+      const { failedHandles, aborted: firstAborted } = await runGuarded(
+        accounts,
+        true,
+      );
       if (deps.getOptimalHour) {
         /* c8 ignore next -- production default */
         const now = deps.now?.() ?? new Date();
@@ -407,19 +414,29 @@ export async function daemonLoop(
           }
         }
       }
-      if (failedHandles.length > 0 && !deps.shouldStop()) {
+      const MAX_RETRIES = 2;
+      const RETRY_BACKOFF_BASE_MS = 5_000;
+      const RETRY_BACKOFF_MULTIPLIER = 3;
+      let pendingFailed = failedHandles;
+      let prevAborted = firstAborted;
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        if (pendingFailed.length === 0 || deps.shouldStop()) break;
         const retryAccounts = accounts.filter((a) =>
-          failedHandles.includes(a.handle),
+          pendingFailed.includes(a.handle),
         );
-        if (retryAccounts.length > 0) {
-          if (firstAborted) {
-            await deps.sleep(WAKE_SETTLE_MS);
-          }
-          deps.log(`Retrying ${retryAccounts.length} account(s)...`);
-          const retry = await runGuarded(retryAccounts);
-          if (retry.failedHandles.length > 0) {
-            deps.log(`Retry failed for: ${retry.failedHandles.join(", ")}`);
-          }
+        const backoffMs =
+          RETRY_BACKOFF_BASE_MS * RETRY_BACKOFF_MULTIPLIER ** attempt;
+        const delayMs = prevAborted
+          ? Math.max(WAKE_SETTLE_MS, backoffMs)
+          : backoffMs;
+        await deps.sleep(delayMs);
+        deps.log(`Retrying ${retryAccounts.length} account(s)...`);
+        const isLast = attempt === MAX_RETRIES - 1;
+        const retry = await runGuarded(retryAccounts, !isLast);
+        pendingFailed = retry.failedHandles;
+        prevAborted = retry.aborted;
+        if (isLast && retry.failedHandles.length > 0) {
+          deps.log(`Retry failed for: ${retry.failedHandles.join(", ")}`);
         }
       }
       deps.updateState?.({ lastPingAt: new Date().toISOString() });

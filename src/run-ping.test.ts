@@ -432,6 +432,27 @@ describe("runPing", () => {
     );
   });
 
+  it("suppresses failure notification when quietFailure is true", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: false, durationMs: 100, error: "timed out" },
+    ]);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      notify: true,
+      quietFailure: true,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(mockSendNotification).not.toHaveBeenCalledWith(
+      "cc-ping: ping failure",
+      expect.any(String),
+    );
+  });
+
   it("sends new window notification with sound when ping succeeds with no prior window", async () => {
     mockPingAccounts.mockResolvedValue([
       { handle: "alice", success: true, durationMs: 100 },

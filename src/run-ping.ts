@@ -13,6 +13,7 @@ interface RunPingOptions {
   json?: boolean;
   bell?: boolean;
   notify?: boolean;
+  quietFailure?: boolean;
   staggerMs?: number;
   wakeDelayMs?: number;
   signal?: AbortSignal;
@@ -106,7 +107,7 @@ export async function runPing(
     ringBell();
   }
 
-  if (failed > 0 && options.notify) {
+  if (failed > 0 && options.notify && !options.quietFailure) {
     const failedHandles = results
       .filter((r) => !r.success)
       .map((r) => r.handle);
