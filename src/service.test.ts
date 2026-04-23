@@ -358,6 +358,25 @@ describe("service", () => {
       );
     });
 
+    it("quotes plist path when loading on darwin (path with spaces)", async () => {
+      const execSync = vi.fn().mockReturnValue("");
+      const deps = makeDeps({
+        platform: "darwin",
+        homedir: () => "/Users/will iam",
+        execSync,
+      });
+
+      await installService({}, deps);
+
+      const loadCall = execSync.mock.calls.find((call) =>
+        String(call[0]).includes("launchctl load"),
+      );
+      const cmd = loadCall?.[0] as string;
+      const expectedPath =
+        "/Users/will iam/Library/LaunchAgents/com.cc-ping.daemon.plist";
+      expect(cmd).toContain(`"${expectedPath}"`);
+    });
+
     it("returns error when launchctl load fails", async () => {
       const execSync = vi.fn().mockImplementation((cmd: string) => {
         if (cmd.includes("launchctl")) throw new Error("load failed");
@@ -504,6 +523,28 @@ describe("service", () => {
         expect.stringContaining("systemctl --user disable --now"),
       );
       expect(unlinkSync).toHaveBeenCalled();
+    });
+
+    it("quotes plist path when unloading on darwin (path with spaces)", async () => {
+      const unlinkSync = vi.fn();
+      const execSync = vi.fn().mockReturnValue("");
+      const deps = makeDeps({
+        platform: "darwin",
+        homedir: () => "/Users/will iam",
+        existsSync: () => true,
+        unlinkSync,
+        execSync,
+      });
+
+      await uninstallService(deps);
+
+      const unloadCall = execSync.mock.calls.find((call) =>
+        String(call[0]).includes("launchctl unload"),
+      );
+      const cmd = unloadCall?.[0] as string;
+      const expectedPath =
+        "/Users/will iam/Library/LaunchAgents/com.cc-ping.daemon.plist";
+      expect(cmd).toContain(`"${expectedPath}"`);
     });
 
     it("continues removal if unload fails", async () => {

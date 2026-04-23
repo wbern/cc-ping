@@ -282,7 +282,7 @@ export async function installService(
 
   try {
     if (_platform === "darwin") {
-      _execSync(`launchctl load ${path}`);
+      _execSync(`launchctl load "${path}"`);
     } else {
       _execSync("systemctl --user daemon-reload");
       _execSync(`systemctl --user enable --now ${SYSTEMD_SERVICE}`);
@@ -331,7 +331,7 @@ export async function uninstallService(
 
   try {
     if (_platform === "darwin") {
-      _execSync(`launchctl unload ${path}`);
+      _execSync(`launchctl unload "${path}"`);
     } else {
       _execSync(`systemctl --user disable --now ${SYSTEMD_SERVICE}`);
     }
