@@ -64,7 +64,12 @@ const WATCHDOG_OVERSHOOT_MS = 5_000;
 
 // Settle delay after detected system wake. The first ping attempt immediately
 // after wake tends to fail because network/DNS/TLS hasn't fully re-established.
-const WAKE_SETTLE_MS = 5_000;
+// macOS post-wake tasks (Time Machine, network reattach) commonly run ~15-30s.
+const WAKE_SETTLE_MS = 20_000;
+
+// After exhausting retries with failures still pending, cap the next sleep so
+// the daemon recovers within minutes instead of waiting a full quota window.
+const POST_FAILURE_SLEEP_MS = 15 * 60 * 1000;
 
 interface Watchdog {
   stop(): void;
@@ -299,7 +304,11 @@ export async function daemonLoop(
   deps: DaemonLoopDeps,
 ): Promise<"stop" | "upgrade"> {
   let wakeDelayMs: number | undefined;
+  let postFailureSleepCap: number | undefined;
   while (!deps.shouldStop()) {
+    // Cap only carries to the very next sleep; a no-op iteration shouldn't
+    // keep waking us every 15min forever.
+    postFailureSleepCap = undefined;
     if (deps.hasUpgraded?.()) {
       deps.log("Binary upgraded, exiting for restart...");
       return "upgrade";
@@ -441,11 +450,17 @@ export async function daemonLoop(
           deps.log(`Retry failed for: ${retry.failedHandles.join(", ")}`);
         }
       }
+      if (pendingFailed.length > 0) {
+        postFailureSleepCap = POST_FAILURE_SLEEP_MS;
+      }
       deps.updateState?.({ lastPingAt: new Date().toISOString() });
     }
 
     if (deps.shouldStop()) break;
     let sleepMs = intervalMs;
+    if (postFailureSleepCap !== undefined && sleepMs > postFailureSleepCap) {
+      sleepMs = postFailureSleepCap;
+    }
     if (soonestDeferHour !== undefined) {
       const msUntilDefer = msUntilUtcHour(
         soonestDeferHour,
@@ -730,6 +745,9 @@ export async function wakeDaemon(
   if (!status.running || !status.pid) {
     return { success: false, error: "Daemon is not running" };
   }
+  // If the daemon stops between the status check and the write, the sentinel
+  // sits until the next start consumes it — which triggers an immediate ping
+  // anyway. So the race is benign and intentionally not guarded.
   _writeWakeFile();
   return { success: true, pid: status.pid };
 }

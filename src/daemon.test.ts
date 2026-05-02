@@ -740,6 +740,38 @@ describe("daemon", () => {
       expect(settleOrder).toBeLessThan(retryPingOrder);
     });
 
+    it("shortens sleep after retry exhaustion so failures recover sooner", async () => {
+      let calls = 0;
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({ failedHandles: ["alice"] }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          calls++;
+          return calls > 4;
+        }),
+        log: vi.fn(),
+        createWatchdog: () => ({ stop: vi.fn() }),
+      };
+
+      const FIVE_HOURS = 5 * 60 * 60 * 1000;
+      await daemonLoop(FIVE_HOURS, {}, deps);
+
+      // Per iteration the loop sleeps: backoff(5s), backoff(15s), then the
+      // post-iteration sleep. The cap should clamp that last one to 15min.
+      const FIFTEEN_MIN = 15 * 60 * 1000;
+      const sleepArgs = deps.sleep.mock.calls.map((c) => c[0] as number);
+      const postIterationSleeps = sleepArgs.filter(
+        (ms) => ms !== 5_000 && ms !== 15_000,
+      );
+      expect(postIterationSleeps.length).toBeGreaterThan(0);
+      for (const ms of postIterationSleeps) {
+        expect(ms).toBe(FIFTEEN_MIN);
+      }
+    });
+
     it("sleeps for interval between pings", async () => {
       let calls = 0;
       const deps = {
