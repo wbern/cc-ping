@@ -772,6 +772,41 @@ describe("daemon", () => {
       }
     });
 
+    it("clears the post-failure cap after a no-op iteration", async () => {
+      let calls = 0;
+      let iteration = 0;
+      const FIVE_HOURS = 5 * 60 * 60 * 1000;
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({ failedHandles: ["alice"] }),
+        listAccounts: vi.fn().mockImplementation(() => {
+          iteration++;
+          // Iteration 1: alice present and fails, sets the cap.
+          // Iteration 2+: no accounts at all, so the if/else doesn't run.
+          return iteration === 1
+            ? [{ handle: "alice", configDir: "/tmp/alice" }]
+            : [];
+        }),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          calls++;
+          return calls > 6;
+        }),
+        log: vi.fn(),
+        createWatchdog: () => ({ stop: vi.fn() }),
+      };
+
+      await daemonLoop(FIVE_HOURS, {}, deps);
+
+      const sleepArgs = deps.sleep.mock.calls.map((c) => c[0] as number);
+      // Filter out the retry backoffs (5s, 15s) from iteration 1.
+      const longSleeps = sleepArgs.filter(
+        (ms) => ms !== 5_000 && ms !== 15_000,
+      );
+      // The first long sleep is iteration 1's capped sleep (15min).
+      // The next one must be the full interval — proving the cap cleared.
+      expect(longSleeps[1]).toBe(FIVE_HOURS);
+    });
+
     it("sleeps for interval between pings", async () => {
       let calls = 0;
       const deps = {
