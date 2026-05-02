@@ -27,6 +27,8 @@ const {
   daemonLoop,
   startDaemon,
   stopDaemon,
+  wakeDaemon,
+  pollingSleep,
   runDaemon,
   daemonPidPath,
   daemonLogPath,
@@ -559,6 +561,29 @@ describe("daemon", () => {
         "Detected system sleep, aborting in-flight ping(s)...",
       );
       expect(stop).toHaveBeenCalled();
+    });
+
+    it("bypasses defer logic when consumeWake returns true", async () => {
+      let calls = 0;
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          calls++;
+          return calls > 1;
+        }),
+        log: vi.fn(),
+        shouldDeferPing: () => ({ defer: true, deferUntilUtcHour: 14 }),
+        consumeWake: vi.fn(() => true),
+      };
+
+      await daemonLoop(60000, {}, deps);
+
+      expect(deps.consumeWake).toHaveBeenCalled();
+      expect(deps.runPing).toHaveBeenCalledTimes(1);
     });
 
     it("waits with exponential backoff between retries (5s, then 15s)", async () => {
@@ -1741,6 +1766,41 @@ describe("daemon", () => {
       });
 
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe("pollingSleep", () => {
+    it("resolves early when isInterrupted returns true mid-sleep", async () => {
+      let calls = 0;
+      const isInterrupted = vi.fn(() => {
+        calls++;
+        return calls >= 2;
+      });
+      const start = Date.now();
+      await pollingSleep(60_000, { isInterrupted, pollMs: 5 });
+      const elapsed = Date.now() - start;
+      expect(isInterrupted).toHaveBeenCalled();
+      expect(elapsed).toBeLessThan(1_000);
+    });
+  });
+
+  describe("wakeDaemon", () => {
+    it("returns error when daemon is not running", async () => {
+      const result = await wakeDaemon({
+        getDaemonStatus: () => ({ running: false }),
+      });
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Daemon is not running");
+    });
+
+    it("writes wake sentinel and returns success when daemon is running", async () => {
+      const writeWakeFile = vi.fn();
+      const result = await wakeDaemon({
+        getDaemonStatus: () => ({ running: true, pid: 4242 }),
+        writeWakeFile,
+      });
+      expect(result).toEqual({ success: true, pid: 4242 });
+      expect(writeWakeFile).toHaveBeenCalledTimes(1);
     });
   });
 

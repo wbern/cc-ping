@@ -110,11 +110,12 @@ export function formatStatusLine(
   if (status.deferReason) {
     lines.push(`    - ${status.deferReason}`);
   }
-  if (status.windowStatus === "needs ping") {
-    if (options?.daemonNextPingIn !== undefined) {
-      lines.push(`    - next ping in ${options.daemonNextPingIn}`);
-    }
-    lines.push(`    - to ping now: cc-ping ping ${handle} &`);
+  if (
+    status.windowStatus === "needs ping" &&
+    options?.daemonNextPingIn !== undefined
+  ) {
+    lines.push(`    - next ping in ${options.daemonNextPingIn}`);
+    lines.push(`    - to ping now: cc-ping wake`);
   }
   if (status.deferUntilUtcHour !== undefined) {
     const { peakStartHour, peakEndHour } = status;

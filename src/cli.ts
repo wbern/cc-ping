@@ -16,6 +16,7 @@ import {
   runDaemonWithDefaults,
   startDaemon,
   stopDaemon,
+  wakeDaemon,
   writeDaemonState,
 } from "./daemon.js";
 import { showDefault } from "./default-command.js";
@@ -160,6 +161,18 @@ program
       staggerMs,
     });
     process.exit(exitCode);
+  });
+
+program
+  .command("wake")
+  .description("Wake the daemon to ping accounts now (skips its current sleep)")
+  .action(async () => {
+    const result = await wakeDaemon();
+    if (!result.success) {
+      console.error(result.error);
+      process.exit(1);
+    }
+    console.log(`Daemon notified to wake (PID: ${result.pid})`);
   });
 
 program

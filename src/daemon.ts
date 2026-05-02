@@ -285,6 +285,7 @@ interface DaemonLoopDeps {
   updateState?: (patch: Partial<DaemonState>) => void;
   isWindowActive?: (handle: string, configDir: string) => boolean;
   shouldDeferPing?: (handle: string, configDir: string) => DeferResult;
+  consumeWake?: () => boolean;
   getOptimalHour?: (handle: string, configDir: string) => number | undefined;
   hasUpgraded?: () => boolean;
   now?: () => Date;
@@ -304,6 +305,7 @@ export async function daemonLoop(
       return "upgrade";
     }
 
+    const wakeRequested = deps.consumeWake?.() === true;
     const allAccounts = deps.listAccounts();
     let accounts = deps.isWindowActive
       ? allAccounts.filter((a) => !deps.isWindowActive!(a.handle, a.configDir))
@@ -320,7 +322,7 @@ export async function daemonLoop(
     }
 
     let soonestDeferHour: number | undefined;
-    if (deps.shouldDeferPing) {
+    if (deps.shouldDeferPing && !wakeRequested) {
       const deferResults = new Map<string, DeferResult>();
       for (const a of accounts) {
         deferResults.set(a.handle, deps.shouldDeferPing(a.handle, a.configDir));
@@ -686,6 +688,52 @@ export async function stopDaemon(
   return { success: true, pid };
 }
 
+// --- Polling sleep ---
+//
+// A sleep that periodically checks whether it should bail out early. Used to
+// let stop/wake sentinels interrupt the daemon's main idle period without
+// waiting for the full timeout to elapse.
+
+export async function pollingSleep(
+  ms: number,
+  opts: { isInterrupted: () => boolean; pollMs: number },
+): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (opts.isInterrupted()) return;
+    const wait = Math.min(opts.pollMs, deadline - Date.now());
+    await new Promise<void>((resolve) => setTimeout(resolve, wait));
+  }
+}
+
+// --- Wake ---
+
+interface WakeDaemonDeps {
+  getDaemonStatus: () => DaemonStatusResult;
+  writeWakeFile: () => void;
+}
+
+export async function wakeDaemon(
+  deps?: Partial<WakeDaemonDeps>,
+): Promise<{ success: boolean; pid?: number; error?: string }> {
+  /* c8 ignore next -- production default */
+  const _getDaemonStatus = deps?.getDaemonStatus ?? getDaemonStatus;
+  const _writeWakeFile =
+    deps?.writeWakeFile ??
+    /* c8 ignore next 5 -- production default */
+    (() => {
+      const dir = resolveConfigDir();
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "daemon.wake"), "");
+    });
+  const status = _getDaemonStatus();
+  if (!status.running || !status.pid) {
+    return { success: false, error: "Daemon is not running" };
+  }
+  _writeWakeFile();
+  return { success: true, pid: status.pid };
+}
+
 // --- Run (called by _run subcommand) ---
 
 interface RunDaemonDeps extends DaemonLoopDeps {
@@ -755,6 +803,7 @@ export async function runDaemonWithDefaults(
   },
 ): Promise<void> {
   const stopPath = daemonStopPath();
+  const wakePath = join(resolveConfigDir(), "daemon.wake");
   const { runPing } = await import("./run-ping.js");
   const { listAccounts } = await import("./config.js");
   const { getWindowReset } = await import("./state.js");
@@ -831,11 +880,25 @@ export async function runDaemonWithDefaults(
     }
   }
 
+  const SLEEP_POLL_MS = 1_000;
   await runDaemon(intervalMs, options, {
     runPing,
     listAccounts,
-    sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+    sleep: (ms) =>
+      pollingSleep(ms, {
+        isInterrupted: () => existsSync(stopPath) || existsSync(wakePath),
+        pollMs: SLEEP_POLL_MS,
+      }),
     shouldStop: () => existsSync(stopPath),
+    consumeWake: () => {
+      if (!existsSync(wakePath)) return false;
+      try {
+        unlinkSync(wakePath);
+      } catch {
+        // already removed by another caller — fine
+      }
+      return true;
+    },
     log: tsLog,
     isWindowActive: (handle, configDir) => {
       if (getWindowReset(handle) !== null) return true;

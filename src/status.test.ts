@@ -256,7 +256,24 @@ describe("formatStatusLine", () => {
     expect(line).toContain("next ping in 4h 52m");
   });
 
-  it("hints at the manual ping command for needs-ping accounts", () => {
+  it("hints at the wake command for needs-ping accounts when daemon is running", () => {
+    const line = formatStatusLine(
+      {
+        handle: "bob",
+        configDir: "/tmp/bob",
+        lastPing: "2025-01-01T00:00:00.000Z",
+        windowStatus: "needs ping",
+        timeUntilReset: null,
+        lastCostUsd: null,
+        lastTokens: null,
+      },
+      { daemonNextPingIn: "4h 52m" },
+    );
+    expect(line).toContain("cc-ping wake");
+    expect(line).not.toContain("cc-ping ping bob");
+  });
+
+  it("omits wake hint when daemon is not running", () => {
     const line = formatStatusLine({
       handle: "bob",
       configDir: "/tmp/bob",
@@ -266,7 +283,7 @@ describe("formatStatusLine", () => {
       lastCostUsd: null,
       lastTokens: null,
     });
-    expect(line).toContain("cc-ping ping bob &");
+    expect(line).not.toContain("cc-ping wake");
   });
 
   it("formats an unknown account", () => {
