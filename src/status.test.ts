@@ -240,6 +240,35 @@ describe("formatStatusLine", () => {
     expect(line).not.toContain("resets in");
   });
 
+  it("shows daemon's next-ping time for needs-ping accounts", () => {
+    const line = formatStatusLine(
+      {
+        handle: "bob",
+        configDir: "/tmp/bob",
+        lastPing: "2025-01-01T00:00:00.000Z",
+        windowStatus: "needs ping",
+        timeUntilReset: null,
+        lastCostUsd: null,
+        lastTokens: null,
+      },
+      { daemonNextPingIn: "4h 52m" },
+    );
+    expect(line).toContain("next ping in 4h 52m");
+  });
+
+  it("hints at the manual ping command for needs-ping accounts", () => {
+    const line = formatStatusLine({
+      handle: "bob",
+      configDir: "/tmp/bob",
+      lastPing: "2025-01-01T00:00:00.000Z",
+      windowStatus: "needs ping",
+      timeUntilReset: null,
+      lastCostUsd: null,
+      lastTokens: null,
+    });
+    expect(line).toContain("cc-ping ping bob &");
+  });
+
   it("formats an unknown account", () => {
     const line = formatStatusLine({
       handle: "charlie",
@@ -568,6 +597,20 @@ describe("printAccountTable", () => {
       new Map([["alice", { optimalPingHour: 10, peakStart: 13, peakEnd: 18 }]]),
     );
     expect(lines[0]).toContain("deferred");
+  });
+
+  it("forwards daemonNextPingIn to formatStatusLine for needs-ping accounts", () => {
+    vi.mocked(listAccounts).mockReturnValue([
+      { handle: "alice", configDir: "/tmp/alice" },
+    ]);
+    recordPing("alice", new Date("2025-01-01T00:00:00.000Z"));
+
+    const lines: string[] = [];
+    const now = new Date("2025-01-01T06:00:00.000Z");
+    printAccountTable((msg: string) => lines.push(msg), now, undefined, {
+      daemonNextPingIn: "1h 23m",
+    });
+    expect(lines[0]).toContain("next ping in 1h 23m");
   });
 
   it("passes duplicates to getAccountStatuses", () => {

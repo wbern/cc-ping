@@ -290,12 +290,16 @@ program
       console.log(JSON.stringify(statuses, null, 2));
       return;
     }
+    const daemonStatus = getDaemonStatus({ currentVersion: __VERSION__ });
     printAccountTable(
       console.log,
       new Date(),
       deferred,
       {
         censor: opts.censor,
+        daemonNextPingIn: daemonStatus.running
+          ? daemonStatus.nextPingIn
+          : undefined,
       },
       covered,
     );
@@ -595,7 +599,7 @@ daemon
       console.log,
       new Date(),
       getDeferredHandles(),
-      { censor: opts.censor },
+      { censor: opts.censor, daemonNextPingIn: status.nextPingIn },
       getCoveredHandles(),
     );
   });

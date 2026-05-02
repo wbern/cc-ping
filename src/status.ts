@@ -84,7 +84,7 @@ export { formatLocalHour, formatTimeAgo } from "./format.js";
 
 export function formatStatusLine(
   status: AccountStatus,
-  options?: { censor?: boolean; now?: Date },
+  options?: { censor?: boolean; now?: Date; daemonNextPingIn?: string },
 ): string {
   const lines: string[] = [];
   const handle = options?.censor ? censorHandle(status.handle) : status.handle;
@@ -109,6 +109,12 @@ export function formatStatusLine(
 
   if (status.deferReason) {
     lines.push(`    - ${status.deferReason}`);
+  }
+  if (status.windowStatus === "needs ping") {
+    if (options?.daemonNextPingIn !== undefined) {
+      lines.push(`    - next ping in ${options.daemonNextPingIn}`);
+    }
+    lines.push(`    - to ping now: cc-ping ping ${handle} &`);
   }
   if (status.deferUntilUtcHour !== undefined) {
     const { peakStartHour, peakEndHour } = status;
@@ -215,7 +221,7 @@ export function printAccountTable(
   log: (msg: string) => void = console.log,
   now: Date = new Date(),
   deferredHandles?: Map<string, DeferInfo>,
-  options?: { censor?: boolean },
+  options?: { censor?: boolean; daemonNextPingIn?: string },
   coveredHandles?: Map<string, DeferInfo | null>,
 ): void {
   const accounts = listAccounts();
