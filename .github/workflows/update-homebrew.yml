@@ -20,22 +20,29 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Download binaries and compute checksums
+      - name: Download Linux binary and compute checksums
         id: checksums
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ steps.release.outputs.tag }}"
-          for target in darwin-arm64 darwin-x64 linux-x64; do
-            gh release download "$TAG" \
-              --repo "${{ github.repository }}" \
-              --pattern "cc-ping-${target}" \
-              --dir .
-            SHA=$(sha256sum "cc-ping-${target}" | cut -d ' ' -f 1)
-            # Convert hyphens to underscores for output variable names
-            KEY=$(echo "$target" | tr '-' '_')
-            echo "sha_${KEY}=$SHA" >> "$GITHUB_OUTPUT"
-          done
+          VERSION="${{ steps.release.outputs.version }}"
+
+          # Linux: ship the prebuilt binary (no Gatekeeper / provenance issues).
+          gh release download "$TAG" \
+            --repo "${{ github.repository }}" \
+            --pattern "cc-ping-linux-x64" \
+            --dir .
+          SHA_LINUX=$(sha256sum cc-ping-linux-x64 | cut -d ' ' -f 1)
+          echo "sha_linux_x64=$SHA_LINUX" >> "$GITHUB_OUTPUT"
+
+          # macOS: build from source on the user's machine to avoid Gatekeeper's
+          # com.apple.provenance xattr blocking downloaded ad-hoc-signed binaries.
+          # Need the source tarball SHA for the Homebrew formula.
+          curl -fsSL -o "cc-ping-source-${VERSION}.tar.gz" \
+            "https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz"
+          SHA_SOURCE=$(sha256sum "cc-ping-source-${VERSION}.tar.gz" | cut -d ' ' -f 1)
+          echo "sha_source=$SHA_SOURCE" >> "$GITHUB_OUTPUT"
 
       - name: Checkout tap repo
         uses: actions/checkout@v4
@@ -47,16 +54,17 @@ jobs:
       - name: Update formula
         env:
           VERSION: ${{ steps.release.outputs.version }}
-          SHA_DARWIN_ARM64: ${{ steps.checksums.outputs.sha_darwin_arm64 }}
-          SHA_DARWIN_X64: ${{ steps.checksums.outputs.sha_darwin_x64 }}
+          SHA_SOURCE: ${{ steps.checksums.outputs.sha_source }}
           SHA_LINUX_X64: ${{ steps.checksums.outputs.sha_linux_x64 }}
         run: |
-          cat > homebrew-cc-ping/Formula/cc-ping.rb << RUBY
+          # Quoted heredoc — no shell expansion, so backslashes in the bun
+          # build --define stay intact. Substitute placeholders afterward.
+          cat > homebrew-cc-ping/Formula/cc-ping.rb << 'RUBY'
           class CcPing < Formula
             desc "Ping Claude Code sessions to trigger quota windows across multiple accounts"
             homepage "https://github.com/wbern/cc-ping"
             license "MIT"
-            version "${VERSION}"
+            version "@@VERSION@@"
 
             livecheck do
               url "https://github.com/wbern/cc-ping/releases/latest"
@@ -64,31 +72,33 @@ jobs:
             end
 
             if OS.mac?
-              if Hardware::CPU.arm?
-                url "https://github.com/wbern/cc-ping/releases/download/v#{version}/cc-ping-darwin-arm64"
-                sha256 "${SHA_DARWIN_ARM64}"
-              else
-                url "https://github.com/wbern/cc-ping/releases/download/v#{version}/cc-ping-darwin-x64"
-                sha256 "${SHA_DARWIN_X64}"
-              end
+              # Build from source on the user's machine. Pre-built binaries
+              # downloaded from GitHub Releases get tagged with macOS Sequoia's
+              # com.apple.provenance xattr, which Gatekeeper blocks for
+              # ad-hoc-signed Mach-O binaries.
+              url "https://github.com/wbern/cc-ping/archive/refs/tags/v#{version}.tar.gz"
+              sha256 "@@SHA_SOURCE@@"
+              depends_on "oven-sh/bun/bun" => :build
             elsif OS.linux?
               url "https://github.com/wbern/cc-ping/releases/download/v#{version}/cc-ping-linux-x64"
-              sha256 "${SHA_LINUX_X64}"
+              sha256 "@@SHA_LINUX_X64@@"
             else
               odie "cc-ping: unsupported platform"
             end
 
             def install
-              binary_name = if OS.mac?
-                Hardware::CPU.arm? ? "cc-ping-darwin-arm64" : "cc-ping-darwin-x64"
-              else
-                "cc-ping-linux-x64"
-              end
-              bin.install binary_name => "cc-ping"
-
               if OS.mac?
-                system "codesign", "--remove-signature", bin/"cc-ping"
-                system "codesign", "--force", "--sign", "-", bin/"cc-ping"
+                ENV["BUN_INSTALL_CACHE_DIR"] = buildpath/"bun-cache"
+                system "bun", "install", "--no-save"
+                system "bun", "build", "--compile", "--minify",
+                       "--define", "__VERSION__=\"\\\"#{version}\\\"\"",
+                       "./src/cli.ts", "--outfile", "cc-ping"
+                # Re-sign ad-hoc to satisfy Gatekeeper after compile.
+                system "codesign", "--remove-signature", "cc-ping"
+                system "codesign", "--force", "--sign", "-", "cc-ping"
+                bin.install "cc-ping"
+              else
+                bin.install "cc-ping-linux-x64" => "cc-ping"
               end
             end
 
@@ -97,6 +107,15 @@ jobs:
             end
           end
           RUBY
+
+          sed -i \
+            -e "s|@@VERSION@@|${VERSION}|g" \
+            -e "s|@@SHA_SOURCE@@|${SHA_SOURCE}|g" \
+            -e "s|@@SHA_LINUX_X64@@|${SHA_LINUX_X64}|g" \
+            homebrew-cc-ping/Formula/cc-ping.rb
+
+          echo "--- Generated formula ---"
+          cat homebrew-cc-ping/Formula/cc-ping.rb
 
       - name: Commit and push
         run: |
