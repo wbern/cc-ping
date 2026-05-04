@@ -41,6 +41,10 @@ Installs to `~/.local/bin` by default. Override with `CC_PING_INSTALL_DIR`. You 
 brew install wbern/cc-ping/cc-ping
 ```
 
+On macOS this builds from source (pulls in `bun` as a build dependency, ~1
+minute on first install) to sidestep Sequoia's Gatekeeper rejecting
+downloaded ad-hoc-signed binaries. Linux uses the prebuilt binary.
+
 ### npm / pnpm
 
 Requires Node.js:

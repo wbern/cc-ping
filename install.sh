@@ -91,8 +91,12 @@ else
   info "Checksums not available, skipping verification"
 fi
 
-# Re-sign macOS binary (Bun compile may produce broken signatures)
+# Re-sign macOS binary (Bun compile may produce broken signatures) and strip
+# the com.apple.provenance xattr that Sequoia 15.7+ adds to downloaded
+# Mach-O binaries — Gatekeeper blocks ad-hoc-signed binaries that carry it.
 if [ "$os" = "darwin" ]; then
+  xattr -d com.apple.provenance "${TMPDIR}/cc-ping" 2>/dev/null || true
+  xattr -d com.apple.quarantine "${TMPDIR}/cc-ping" 2>/dev/null || true
   codesign --remove-signature "${TMPDIR}/cc-ping" 2>/dev/null || true
   codesign --force --sign - "${TMPDIR}/cc-ping" 2>/dev/null || true
 fi

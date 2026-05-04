@@ -4,10 +4,14 @@ on:
   workflow_run:
     workflows: ["Build Binaries"]
     types: [completed]
+  # Manual trigger: regenerate the formula against the current latest release
+  # without cutting a new version. Useful for testing formula changes.
+  workflow_dispatch:
 
 jobs:
   update-formula:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # Run on manual dispatch unconditionally; on workflow_run, only after success.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Get latest release
