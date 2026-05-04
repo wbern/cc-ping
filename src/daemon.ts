@@ -306,8 +306,8 @@ export async function daemonLoop(
   let wakeDelayMs: number | undefined;
   let postFailureSleepCap: number | undefined;
   while (!deps.shouldStop()) {
-    // Cap only carries to the very next sleep; a no-op iteration shouldn't
-    // keep waking us every 15min forever.
+    // Cap is single-use: clear at the top of every iteration so it only
+    // applies to the sleep right after the failed iteration that set it.
     postFailureSleepCap = undefined;
     if (deps.hasUpgraded?.()) {
       deps.log("Binary upgraded, exiting for restart...");

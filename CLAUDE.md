@@ -35,15 +35,15 @@ If knip or coverage fails, the commit is rejected. Fix the issue and create a ne
 
 - Single instance enforced via PID file + process name check
 - Retries only failed accounts once before sleeping
-- After retry exhaustion with failures still pending, the next sleep is capped at 15min (vs the full interval) so transient outages recover within minutes; cap clears after a no-op iteration so the daemon doesn't keep waking forever
+- After retry exhaustion with failures still pending, the next sleep is capped at 15min (vs the full interval) so transient outages recover within minutes. The cap is single-use: it applies only to the sleep immediately after a failed iteration and is reset at the start of the next loop, so a recovered or no-op iteration goes back to the full interval
 - Detects system sleep via timer overshoot (>60s late)
 - Graceful stop: sentinel file polled every 500ms for up to 60s, then SIGTERM
 
 ## Releases
 
-Automated via semantic-release on push to `main`. Conventional commit types determine the version bump (`feat:` → minor, `fix:` → patch). No manual version bumps needed. The full chain: semantic-release (npm publish + GitHub Release) → binaries.yml (Bun compile for 3 platforms + codesign + upload) → update-homebrew.yml (update wbern/homebrew-cc-ping tap with SHA256s). Bun is pinned to 1.3.11 in binaries.yml due to a signing regression in 1.3.12 (oven-sh/bun#29120); the Homebrew formula uses whatever bun version brew installs and re-codesigns to mitigate.
+Automated via semantic-release on push to `main`. Conventional commit types determine the version bump (`feat:` → minor, `fix:` → patch). No manual version bumps needed. The full chain: semantic-release (npm publish + GitHub Release) → binaries.yml (Bun compile for 3 platforms + codesign + upload) → update-homebrew.yml (regenerate the wbern/homebrew-cc-ping tap formula). Bun is pinned to 1.3.11 in binaries.yml due to a signing regression in 1.3.12 (oven-sh/bun#29120) — the binaries it produces ship to GitHub Releases for direct curl/install.sh users, so the pin matters there.
 
-The macOS Homebrew formula builds from source via `bun build --compile` (`depends_on "oven-sh/bun/bun" => :build`) to avoid macOS Sequoia's `com.apple.provenance` xattr blocking Gatekeeper for downloaded ad-hoc-signed binaries. Linux uses the prebuilt binary from releases. The curl-pipe `install.sh` strips `com.apple.provenance` and `com.apple.quarantine` before re-codesigning.
+The macOS Homebrew formula builds from source via `bun build --compile` (`depends_on "oven-sh/bun/bun" => :build`) to sidestep macOS Sequoia's Gatekeeper rejection of ad-hoc-signed Mach-O binaries downloaded from external sources. (The `com.apple.provenance` xattr ends up on locally-built binaries too but doesn't trigger the block — Gatekeeper appears to discriminate by provenance value/ancestry, not the xattr's presence.) The formula re-codesigns after `bun build` to defend against bun's 1.3.12+ signing regression. Linux uses the prebuilt binary from releases. The curl-pipe `install.sh` strips `com.apple.provenance` and `com.apple.quarantine` before re-codesigning.
 
 ## Smart scheduling
 
