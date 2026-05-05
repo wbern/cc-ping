@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { Command } from "commander";
 import { checkAccounts } from "./check.js";
@@ -244,6 +245,10 @@ program
   )
   .option("-g, --group <group>", "Assign account to a group")
   .action((configDir, opts) => {
+    if (!existsSync(configDir)) {
+      console.error(`Error: config directory does not exist: ${configDir}`);
+      process.exit(1);
+    }
     const handle = opts.name || basename(configDir);
     addAccount(handle, configDir, opts.group);
     const groupInfo = opts.group ? ` [${opts.group}]` : "";
