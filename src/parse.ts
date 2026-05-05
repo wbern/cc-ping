@@ -5,7 +5,7 @@ function asString(x: unknown): string {
 }
 
 function asNumber(x: unknown): number {
-  return typeof x === "number" && Number.isFinite(x) ? x : 0;
+  return typeof x === "number" ? x : 0;
 }
 
 function asBool(x: unknown): boolean {
@@ -15,12 +15,14 @@ function asBool(x: unknown): boolean {
 export function parseClaudeResponse(stdout: string): ClaudeJsonResponse | null {
   if (!stdout) return null;
 
-  let raw: Record<string, unknown>;
+  let parsed: unknown;
   try {
-    raw = JSON.parse(stdout) as Record<string, unknown>;
+    parsed = JSON.parse(stdout);
   } catch {
     return null;
   }
+  if (!parsed || typeof parsed !== "object") return null;
+  const raw = parsed as Record<string, unknown>;
 
   if (raw.type !== "result") return null;
   if (!raw.usage || typeof raw.usage !== "object") return null;

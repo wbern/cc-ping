@@ -65,6 +65,14 @@ describe("parseClaudeResponse", () => {
     expect(parseClaudeResponse("not json at all")).toBeNull();
   });
 
+  it("returns null when JSON parses to null", () => {
+    expect(parseClaudeResponse("null")).toBeNull();
+  });
+
+  it("returns null when JSON parses to a scalar", () => {
+    expect(parseClaudeResponse("42")).toBeNull();
+  });
+
   it("returns null for JSON missing type field", () => {
     const json = JSON.stringify({ subtype: "success", usage: {} });
     expect(parseClaudeResponse(json)).toBeNull();

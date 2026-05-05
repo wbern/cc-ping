@@ -112,6 +112,9 @@ describe("state", () => {
         }),
       );
       expect(loadState()).toEqual({ lastPing: {} });
+      expect(
+        readdirSync(stateDir).some((f) => f.startsWith("state.json.corrupt")),
+      ).toBe(true);
     });
 
     it("quarantines state with malformed lastPingMeta fields", () => {
@@ -124,12 +127,18 @@ describe("state", () => {
         }),
       );
       expect(loadState()).toEqual({ lastPing: {} });
+      expect(
+        readdirSync(stateDir).some((f) => f.startsWith("state.json.corrupt")),
+      ).toBe(true);
     });
 
     it("quarantines state when JSON parses to null", () => {
       mkdirSync(stateDir, { recursive: true });
       writeFileSync(join(stateDir, "state.json"), "null");
       expect(loadState()).toEqual({ lastPing: {} });
+      expect(
+        readdirSync(stateDir).some((f) => f.startsWith("state.json.corrupt")),
+      ).toBe(true);
     });
 
     it("quarantines state with null lastPingMeta", () => {
@@ -139,6 +148,9 @@ describe("state", () => {
         JSON.stringify({ lastPing: {}, lastPingMeta: null }),
       );
       expect(loadState()).toEqual({ lastPing: {} });
+      expect(
+        readdirSync(stateDir).some((f) => f.startsWith("state.json.corrupt")),
+      ).toBe(true);
     });
   });
 

@@ -1,4 +1,4 @@
-import { execFileSync, execSync, spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
   existsSync,
   closeSync as fsCloseSync,
@@ -883,7 +883,7 @@ export async function runDaemonWithDefaults(
     let ccPingBin = process.env.CC_PING_BIN;
     if (!ccPingBin) {
       try {
-        ccPingBin = execSync("which cc-ping", {
+        ccPingBin = execFileSync("which", ["cc-ping"], {
           encoding: "utf-8",
           timeout: 5000,
         }).trim();

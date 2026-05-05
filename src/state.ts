@@ -18,7 +18,7 @@ interface SaveStateDeps {
 }
 
 function isStringRecord(x: unknown): x is Record<string, string> {
-  if (!x || typeof x !== "object") return false;
+  if (!x || typeof x !== "object" || Array.isArray(x)) return false;
   for (const v of Object.values(x)) {
     if (typeof v !== "string") return false;
   }
@@ -26,7 +26,7 @@ function isStringRecord(x: unknown): x is Record<string, string> {
 }
 
 function isPingMetaRecord(x: unknown): x is Record<string, PingMeta> {
-  if (!x || typeof x !== "object") return false;
+  if (!x || typeof x !== "object" || Array.isArray(x)) return false;
   for (const v of Object.values(x)) {
     if (!v || typeof v !== "object") return false;
     const m = v as Record<string, unknown>;
