@@ -51,14 +51,12 @@ const errorJson = JSON.stringify({
 function setupMock(error: Error | null, stdout = "") {
   mockExecFile.mockImplementation(
     (_cmd: unknown, _args: unknown, _opts: unknown, cb: unknown) => {
-      setTimeout(
-        () =>
-          (cb as (err: Error | null, stdout: string, stderr: string) => void)(
-            error,
-            stdout,
-            "",
-          ),
-        10,
+      queueMicrotask(() =>
+        (cb as (err: Error | null, stdout: string, stderr: string) => void)(
+          error,
+          stdout,
+          "",
+        ),
       );
       return { stdin: { end: vi.fn() } } as unknown as ReturnType<
         typeof execFile
