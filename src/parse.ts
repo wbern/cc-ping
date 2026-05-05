@@ -21,7 +21,9 @@ export function parseClaudeResponse(stdout: string): ClaudeJsonResponse | null {
   } catch {
     return null;
   }
-  if (!parsed || typeof parsed !== "object") return null;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
   const raw = parsed as Record<string, unknown>;
 
   if (raw.type !== "result") return null;

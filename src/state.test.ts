@@ -102,6 +102,30 @@ describe("state", () => {
       ).toBe(true);
     });
 
+    it("quarantines state with array-typed lastPing", () => {
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(
+        join(stateDir, "state.json"),
+        JSON.stringify({ lastPing: ["alice"] }),
+      );
+      expect(loadState()).toEqual({ lastPing: {} });
+      expect(
+        readdirSync(stateDir).some((f) => f.startsWith("state.json.corrupt")),
+      ).toBe(true);
+    });
+
+    it("quarantines state with array-typed lastPingMeta", () => {
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(
+        join(stateDir, "state.json"),
+        JSON.stringify({ lastPing: {}, lastPingMeta: [] }),
+      );
+      expect(loadState()).toEqual({ lastPing: {} });
+      expect(
+        readdirSync(stateDir).some((f) => f.startsWith("state.json.corrupt")),
+      ).toBe(true);
+    });
+
     it("quarantines state with non-object lastPingMeta entry", () => {
       mkdirSync(stateDir, { recursive: true });
       writeFileSync(
