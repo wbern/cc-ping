@@ -1,6 +1,6 @@
 {
   "name": "@wbern/cc-ping",
-  "version": "1.21.7",
+  "version": "1.21.8",
   "description": "Ping Claude Code sessions to trigger quota windows early across multiple accounts",
   "type": "module",
   "bin": {
