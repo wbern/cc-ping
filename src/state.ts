@@ -17,6 +17,42 @@ interface SaveStateDeps {
   renameSync: (from: string, to: string) => void;
 }
 
+function isStringRecord(x: unknown): x is Record<string, string> {
+  if (!x || typeof x !== "object") return false;
+  for (const v of Object.values(x)) {
+    if (typeof v !== "string") return false;
+  }
+  return true;
+}
+
+function isPingMetaRecord(x: unknown): x is Record<string, PingMeta> {
+  if (!x || typeof x !== "object") return false;
+  for (const v of Object.values(x)) {
+    if (!v || typeof v !== "object") return false;
+    const m = v as Record<string, unknown>;
+    if (
+      typeof m.costUsd !== "number" ||
+      typeof m.inputTokens !== "number" ||
+      typeof m.outputTokens !== "number" ||
+      typeof m.model !== "string" ||
+      typeof m.sessionId !== "string"
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isPingState(x: unknown): x is PingState {
+  if (!x || typeof x !== "object") return false;
+  const s = x as Record<string, unknown>;
+  if (!isStringRecord(s.lastPing)) return false;
+  if (s.lastPingMeta !== undefined && !isPingMetaRecord(s.lastPingMeta)) {
+    return false;
+  }
+  return true;
+}
+
 export function loadState(): PingState {
   const stateFile = join(resolveConfigDir(), "state.json");
   if (!existsSync(stateFile)) {
@@ -24,7 +60,9 @@ export function loadState(): PingState {
   }
   try {
     const raw = readFileSync(stateFile, "utf-8");
-    return JSON.parse(raw) as PingState;
+    const parsed: unknown = JSON.parse(raw);
+    if (!isPingState(parsed)) throw new Error("invalid state shape");
+    return parsed;
   } catch {
     try {
       renameSync(stateFile, `${stateFile}.corrupt`);

@@ -80,6 +80,66 @@ describe("state", () => {
       );
       expect(existsSync(join(stateDir, "state.json"))).toBe(false);
     });
+
+    it("quarantines state with wrong top-level shape", () => {
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(join(stateDir, "state.json"), JSON.stringify(["array"]));
+      expect(loadState()).toEqual({ lastPing: {} });
+      expect(
+        readdirSync(stateDir).some((f) => f.startsWith("state.json.corrupt")),
+      ).toBe(true);
+    });
+
+    it("quarantines state with non-string lastPing values", () => {
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(
+        join(stateDir, "state.json"),
+        JSON.stringify({ lastPing: { alice: 123 } }),
+      );
+      expect(loadState()).toEqual({ lastPing: {} });
+      expect(
+        readdirSync(stateDir).some((f) => f.startsWith("state.json.corrupt")),
+      ).toBe(true);
+    });
+
+    it("quarantines state with non-object lastPingMeta entry", () => {
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(
+        join(stateDir, "state.json"),
+        JSON.stringify({
+          lastPing: {},
+          lastPingMeta: { alice: "not-an-object" },
+        }),
+      );
+      expect(loadState()).toEqual({ lastPing: {} });
+    });
+
+    it("quarantines state with malformed lastPingMeta fields", () => {
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(
+        join(stateDir, "state.json"),
+        JSON.stringify({
+          lastPing: {},
+          lastPingMeta: { alice: { costUsd: "not-a-number" } },
+        }),
+      );
+      expect(loadState()).toEqual({ lastPing: {} });
+    });
+
+    it("quarantines state when JSON parses to null", () => {
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(join(stateDir, "state.json"), "null");
+      expect(loadState()).toEqual({ lastPing: {} });
+    });
+
+    it("quarantines state with null lastPingMeta", () => {
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(
+        join(stateDir, "state.json"),
+        JSON.stringify({ lastPing: {}, lastPingMeta: null }),
+      );
+      expect(loadState()).toEqual({ lastPing: {} });
+    });
   });
 
   describe("saveState", () => {

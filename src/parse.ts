@@ -1,5 +1,17 @@
 import type { ClaudeJsonResponse } from "./types.js";
 
+function asString(x: unknown): string {
+  return typeof x === "string" ? x : "";
+}
+
+function asNumber(x: unknown): number {
+  return typeof x === "number" && Number.isFinite(x) ? x : 0;
+}
+
+function asBool(x: unknown): boolean {
+  return typeof x === "boolean" ? x : false;
+}
+
 export function parseClaudeResponse(stdout: string): ClaudeJsonResponse | null {
   if (!stdout) return null;
 
@@ -13,7 +25,7 @@ export function parseClaudeResponse(stdout: string): ClaudeJsonResponse | null {
   if (raw.type !== "result") return null;
   if (!raw.usage || typeof raw.usage !== "object") return null;
 
-  const usage = raw.usage as Record<string, number>;
+  const usage = raw.usage as Record<string, unknown>;
   const modelUsage = (raw.modelUsage ?? raw.model_usage) as
     | Record<string, unknown>
     | undefined;
@@ -22,20 +34,20 @@ export function parseClaudeResponse(stdout: string): ClaudeJsonResponse | null {
     : "unknown";
 
   return {
-    type: raw.type as string,
-    subtype: (raw.subtype as string) ?? "",
-    session_id: (raw.session_id as string) ?? "",
-    duration_ms: (raw.duration_ms as number) ?? 0,
-    duration_api_ms: (raw.duration_api_ms as number) ?? 0,
-    is_error: (raw.is_error as boolean) ?? false,
-    num_turns: (raw.num_turns as number) ?? 0,
-    result: (raw.result as string) ?? "",
-    total_cost_usd: (raw.total_cost_usd as number) ?? 0,
+    type: "result",
+    subtype: asString(raw.subtype),
+    session_id: asString(raw.session_id),
+    duration_ms: asNumber(raw.duration_ms),
+    duration_api_ms: asNumber(raw.duration_api_ms),
+    is_error: asBool(raw.is_error),
+    num_turns: asNumber(raw.num_turns),
+    result: asString(raw.result),
+    total_cost_usd: asNumber(raw.total_cost_usd),
     usage: {
-      input_tokens: usage.input_tokens ?? 0,
-      output_tokens: usage.output_tokens ?? 0,
-      cache_read_input_tokens: usage.cache_read_input_tokens ?? 0,
-      cache_creation_input_tokens: usage.cache_creation_input_tokens ?? 0,
+      input_tokens: asNumber(usage.input_tokens),
+      output_tokens: asNumber(usage.output_tokens),
+      cache_read_input_tokens: asNumber(usage.cache_read_input_tokens),
+      cache_creation_input_tokens: asNumber(usage.cache_creation_input_tokens),
     },
     model,
   };

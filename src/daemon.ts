@@ -133,7 +133,7 @@ export function isProcessRunning(pid: number): boolean {
 /* c8 ignore start -- subprocess call, tested via DI in getDaemonStatus */
 function isDaemonProcess(pid: number): boolean {
   try {
-    const output = execSync(`ps -p ${pid} -o command=`, {
+    const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
       encoding: "utf-8",
       timeout: 5000,
       stdio: ["ignore", "pipe", "ignore"],
@@ -176,7 +176,7 @@ export function getDaemonStatus(deps?: {
   isDaemonProcess?: (pid: number) => boolean;
   currentVersion?: string;
 }): DaemonStatusResult {
-  /* c8 ignore next -- real isDaemonProcess uses execSync, tested via DI */
+  /* c8 ignore next -- real isDaemonProcess uses execFileSync, tested via DI */
   const _isDaemonProcess = deps?.isDaemonProcess ?? isDaemonProcess;
   const state = readDaemonState();
   if (!state) return { running: false };
@@ -632,7 +632,7 @@ export async function stopDaemon(
     /* c8 ignore next 7 -- production default */
     ((pid: number) => {
       if (process.platform === "win32") {
-        execSync(`taskkill /PID ${pid}`);
+        execFileSync("taskkill", ["/PID", String(pid)]);
       } else {
         process.kill(pid, "SIGTERM");
       }
@@ -643,7 +643,7 @@ export async function stopDaemon(
     /* c8 ignore next 7 -- production default */
     ((pid: number) => {
       if (process.platform === "win32") {
-        execSync(`taskkill /F /PID ${pid}`);
+        execFileSync("taskkill", ["/F", "/PID", String(pid)]);
       } else {
         process.kill(pid, "SIGKILL");
       }
@@ -824,12 +824,17 @@ export async function runDaemonWithDefaults(
   const wakePath = join(resolveConfigDir(), "daemon.wake");
   const { runPing } = await import("./run-ping.js");
   const { listAccounts } = await import("./config.js");
-  const { getWindowReset } = await import("./state.js");
+  const { getWindowReset, pruneOrphanState } = await import("./state.js");
   const { checkRecentActivity, readAccountSchedule, shouldDefer } =
     await import("./schedule.js");
 
   const tsLog = (msg: string) =>
     console.log(`[${new Date().toISOString()}] ${msg}`);
+
+  const prunedOrphans = pruneOrphanState(listAccounts().map((a) => a.handle));
+  if (prunedOrphans.length > 0) {
+    tsLog(`Pruned orphan state for: ${prunedOrphans.join(", ")}`);
+  }
 
   const smartScheduleEnabled = options.smartSchedule !== false;
   let shouldDeferPing:
