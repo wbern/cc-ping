@@ -10,7 +10,6 @@
     "resolveJsonModule": true,
     "outDir": "dist",
     "rootDir": "src",
-    "declaration": true,
     "sourceMap": true
   },
   "include": ["src"],

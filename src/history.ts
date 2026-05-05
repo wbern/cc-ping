@@ -1,3 +1,5 @@
+// cc-ping's own ping history (ISO string timestamps). Not the same file as
+// Claude Code's account history.jsonl read by schedule.ts (numeric ms).
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { formatTimeAgo } from "./format.js";

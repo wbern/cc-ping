@@ -1,3 +1,5 @@
+// Reads Claude Code's account history.jsonl (numeric ms timestamps).
+// Not the same file as cc-ping's own history.jsonl in history.ts (ISO strings).
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
