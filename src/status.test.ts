@@ -324,7 +324,7 @@ describe("formatStatusLine", () => {
     expect(line).toContain("window active from recent Claude Code usage");
     expect(line).toContain("next ping in 4h 12m");
     expect(line).not.toContain("smart-scheduled");
-    expect(line).not.toContain("peak:");
+    expect(line).not.toContain("peak hours");
   });
 
   it("omits next-ping line for activity-covered accounts when daemon is not running", () => {
@@ -359,8 +359,7 @@ describe("formatStatusLine", () => {
     });
     expect(line).toContain("eve");
     expect(line).toContain("deferred");
-    expect(line).toContain("next ping at 9:00 UTC");
-    expect(line).toContain("smart-scheduled");
+    expect(line).toContain("smart-scheduled: next ping at 9:00 UTC");
   });
 
   it("annotates a smart-scheduled deferred account when now is provided", () => {
@@ -377,8 +376,7 @@ describe("formatStatusLine", () => {
       },
       { now: new Date("2025-01-01T06:00:00.000Z") },
     );
-    expect(line).toContain("next ping in about 3 hours");
-    expect(line).toContain("smart-scheduled");
+    expect(line).toContain("smart-scheduled: next ping in about 3 hours");
     expect(line).not.toContain("peak");
     expect(line).not.toContain("UTC");
   });
@@ -396,9 +394,8 @@ describe("formatStatusLine", () => {
       peakStartHour: 19,
       peakEndHour: 0,
     });
-    expect(line).toContain("next ping at 16:00 UTC");
-    expect(line).toContain("smart-scheduled");
-    expect(line).toContain("peak: 19-0 UTC");
+    expect(line).toContain("smart-scheduled: next ping at 16:00 UTC");
+    expect(line).toContain("to optimize for user peak hours 19-0 UTC");
   });
 
   it("formats a deferred account without scheduled time when hour is undefined", () => {

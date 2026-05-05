@@ -147,14 +147,16 @@ export function formatStatusLine(
       const distance = formatDistance(targetTime, options.now, {
         addSuffix: true,
       });
-      const peak = hasPeak
-        ? `, peak: ${formatLocalHour(peakStartHour, options.now)} – ${formatLocalHour(peakEndHour, options.now)}`
+      const reason = hasPeak
+        ? ` to optimize for user peak hours ${formatLocalHour(peakStartHour, options.now)} – ${formatLocalHour(peakEndHour, options.now)}`
         : "";
-      lines.push(`    - next ping ${distance} (smart-scheduled${peak})`);
+      lines.push(`    - smart-scheduled: next ping ${distance}${reason}`);
     } else {
-      const peak = hasPeak ? `, peak: ${peakStartHour}-${peakEndHour} UTC` : "";
+      const reason = hasPeak
+        ? ` to optimize for user peak hours ${peakStartHour}-${peakEndHour} UTC`
+        : "";
       lines.push(
-        `    - next ping at ${status.deferUntilUtcHour}:00 UTC (smart-scheduled${peak})`,
+        `    - smart-scheduled: next ping at ${status.deferUntilUtcHour}:00 UTC${reason}`,
       );
     }
   }
