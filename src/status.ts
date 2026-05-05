@@ -110,14 +110,34 @@ export function formatStatusLine(
   if (status.deferReason) {
     lines.push(`    - ${status.deferReason}`);
   }
-  if (
-    status.windowStatus === "needs ping" &&
-    options?.daemonNextPingIn !== undefined
-  ) {
-    lines.push(`    - next ping in ${options.daemonNextPingIn}`);
-    lines.push(`    - to ping now: cc-ping wake`);
+
+  // The "next ping" line has three flavours:
+  //   1. needs ping            → daemon's next regular wake + wake hint
+  //   2. deferred + deferReason → organic activity is covering the window;
+  //                                show the daemon's next regular wake, no
+  //                                smart-scheduling annotation (cadence is
+  //                                ordinary, account just keeps getting
+  //                                skipped while activity continues)
+  //   3. deferred, no reason   → smart-scheduling is actively delaying the
+  //                                ping to land on the peak window; surface
+  //                                that explicitly so the user understands
+  //                                why the next ping is shifted
+  const showsDaemonCadence =
+    options?.daemonNextPingIn !== undefined &&
+    (status.windowStatus === "needs ping" ||
+      (status.windowStatus === "deferred" && status.deferReason !== undefined));
+  if (showsDaemonCadence) {
+    lines.push(`    - next ping in ${options?.daemonNextPingIn}`);
+    if (status.windowStatus === "needs ping") {
+      lines.push(`    - to ping now: cc-ping wake`);
+    }
   }
-  if (status.deferUntilUtcHour !== undefined) {
+
+  const isSmartDeferred =
+    status.windowStatus === "deferred" &&
+    status.deferReason === undefined &&
+    status.deferUntilUtcHour !== undefined;
+  if (isSmartDeferred && status.deferUntilUtcHour !== undefined) {
     const { peakStartHour, peakEndHour } = status;
     const hasPeak = peakStartHour !== undefined && peakEndHour !== undefined;
     if (options?.now) {
@@ -128,15 +148,13 @@ export function formatStatusLine(
         addSuffix: true,
       });
       const peak = hasPeak
-        ? ` (peak: ${formatLocalHour(peakStartHour, options.now)} – ${formatLocalHour(peakEndHour, options.now)})`
+        ? `, peak: ${formatLocalHour(peakStartHour, options.now)} – ${formatLocalHour(peakEndHour, options.now)}`
         : "";
-      lines.push(`    - next ping ${distance}${peak}`);
+      lines.push(`    - next ping ${distance} (smart-scheduled${peak})`);
     } else {
-      const peak = hasPeak
-        ? ` (peak: ${peakStartHour}-${peakEndHour} UTC)`
-        : "";
+      const peak = hasPeak ? `, peak: ${peakStartHour}-${peakEndHour} UTC` : "";
       lines.push(
-        `    - next ping at ${status.deferUntilUtcHour}:00 UTC${peak}`,
+        `    - next ping at ${status.deferUntilUtcHour}:00 UTC (smart-scheduled${peak})`,
       );
     }
   }

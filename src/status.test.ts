@@ -301,7 +301,7 @@ describe("formatStatusLine", () => {
     expect(line).toContain("never");
   });
 
-  it("shows both reason and next ping for activity-covered accounts", () => {
+  it("shows daemon's next-ping cadence for activity-covered accounts (no smart annotation)", () => {
     const line = formatStatusLine(
       {
         handle: "alice",
@@ -316,15 +316,37 @@ describe("formatStatusLine", () => {
         peakStartHour: 17,
         peakEndHour: 22,
       },
+      {
+        now: new Date("2025-01-01T11:00:00.000Z"),
+        daemonNextPingIn: "4h 12m",
+      },
+    );
+    expect(line).toContain("window active from recent Claude Code usage");
+    expect(line).toContain("next ping in 4h 12m");
+    expect(line).not.toContain("smart-scheduled");
+    expect(line).not.toContain("peak:");
+  });
+
+  it("omits next-ping line for activity-covered accounts when daemon is not running", () => {
+    const line = formatStatusLine(
+      {
+        handle: "alice",
+        configDir: "/tmp/alice",
+        lastPing: "2025-01-01T00:00:00.000Z",
+        windowStatus: "deferred",
+        timeUntilReset: null,
+        lastCostUsd: null,
+        lastTokens: null,
+        deferReason: "window active from recent Claude Code usage",
+        deferUntilUtcHour: 14,
+      },
       { now: new Date("2025-01-01T11:00:00.000Z") },
     );
     expect(line).toContain("window active from recent Claude Code usage");
-    expect(line).toContain("next ping in about 3 hours");
-    expect(line).toContain("peak:");
-    expect(line).not.toContain("UTC");
+    expect(line).not.toContain("next ping");
   });
 
-  it("formats a deferred account with scheduled ping time (no now)", () => {
+  it("annotates a smart-scheduled deferred account (no now)", () => {
     const line = formatStatusLine({
       handle: "eve",
       configDir: "/tmp/eve",
@@ -338,9 +360,10 @@ describe("formatStatusLine", () => {
     expect(line).toContain("eve");
     expect(line).toContain("deferred");
     expect(line).toContain("next ping at 9:00 UTC");
+    expect(line).toContain("smart-scheduled");
   });
 
-  it("shows relative next ping without peak when now is provided", () => {
+  it("annotates a smart-scheduled deferred account when now is provided", () => {
     const line = formatStatusLine(
       {
         handle: "eve",
@@ -355,11 +378,12 @@ describe("formatStatusLine", () => {
       { now: new Date("2025-01-01T06:00:00.000Z") },
     );
     expect(line).toContain("next ping in about 3 hours");
+    expect(line).toContain("smart-scheduled");
     expect(line).not.toContain("peak");
     expect(line).not.toContain("UTC");
   });
 
-  it("shows peak activity window when available", () => {
+  it("includes peak window in smart-schedule annotation when available", () => {
     const line = formatStatusLine({
       handle: "eve",
       configDir: "/tmp/eve",
@@ -373,6 +397,7 @@ describe("formatStatusLine", () => {
       peakEndHour: 0,
     });
     expect(line).toContain("next ping at 16:00 UTC");
+    expect(line).toContain("smart-scheduled");
     expect(line).toContain("peak: 19-0 UTC");
   });
 
