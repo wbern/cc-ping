@@ -1,3 +1,5 @@
+<p align="center"><img src="./logo.svg" width="160" alt="cc-ping logo"></p>
+
 # @wbern/cc-ping
 
 [![npm version](https://img.shields.io/npm/v/@wbern/cc-ping)](https://www.npmjs.com/package/@wbern/cc-ping)
