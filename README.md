@@ -1,11 +1,20 @@
-<p align="center"><img src="./logo.svg" width="160" alt="cc-ping logo"></p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./logo-dark.svg">
+    <img src="./logo.svg" width="160" alt="cc-ping logo">
+  </picture>
+</p>
 
-# @wbern/cc-ping
+<h1 align="center">@wbern/cc-ping</h1>
 
-[![npm version](https://img.shields.io/npm/v/@wbern/cc-ping)](https://www.npmjs.com/package/@wbern/cc-ping)
-[![npm downloads](https://img.shields.io/npm/dm/@wbern/cc-ping)](https://www.npmjs.com/package/@wbern/cc-ping)
-[![CI](https://github.com/wbern/cc-ping/actions/workflows/ci.yml/badge.svg)](https://github.com/wbern/cc-ping/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+<p align="center">Ping Claude Code sessions to trigger quota windows early across multiple accounts.</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@wbern/cc-ping"><img src="https://img.shields.io/npm/v/@wbern/cc-ping" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@wbern/cc-ping"><img src="https://img.shields.io/npm/dm/@wbern/cc-ping" alt="npm downloads"></a>
+  <a href="https://github.com/wbern/cc-ping/actions/workflows/ci.yml"><img src="https://github.com/wbern/cc-ping/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+</p>
 
 <p align="center">
   <img src="docs/daemon-status.png" alt="cc-ping daemon status" width="520" />
