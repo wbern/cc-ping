@@ -14,6 +14,10 @@
   <a href="https://www.npmjs.com/package/@wbern/cc-ping"><img src="https://img.shields.io/npm/dm/@wbern/cc-ping" alt="npm downloads"></a>
   <a href="https://github.com/wbern/cc-ping/actions/workflows/ci.yml"><img src="https://github.com/wbern/cc-ping/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <br>
+  <a href="https://claude.ai/code"><img src="https://img.shields.io/badge/Made%20with-Claude%20Code-blueviolet" alt="Made with Claude Code"></a>
+  <a href="https://github.com/wbern/cc-ping/graphs/contributors"><img src="https://img.shields.io/github/contributors/wbern/cc-ping" alt="Contributors"></a>
+  <a href="https://github.com/wbern/cc-ping/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs Welcome"></a>
 </p>
 
 <p align="center">
