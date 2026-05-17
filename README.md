@@ -45,10 +45,21 @@ claude --version   # verify it's available
 No Node.js required — downloads a single binary:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/wbern/cc-ping/main/install.sh | bash
+TAG=$(curl -fsSL https://api.github.com/repos/wbern/cc-ping/releases/latest \
+  | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+curl -fsSL "https://raw.githubusercontent.com/wbern/cc-ping/${TAG}/install.sh" | bash -s -- "$TAG"
 ```
 
 Installs to `~/.local/bin` by default. Override with `CC_PING_INSTALL_DIR`. You may need to restart your shell or add `~/.local/bin` to your PATH.
+
+The two-step form pins the installer script to a published release tag rather than fetching it from `main`, so a single push to `main` cannot deliver attacker code to fresh installs. Both the script and the binary it downloads come from the same signed release. Inspect before piping with `curl -fsSL "https://raw.githubusercontent.com/wbern/cc-ping/${TAG}/install.sh" | less`.
+
+To pin a specific version instead of the latest release:
+
+```bash
+TAG=v1.21.0
+curl -fsSL "https://raw.githubusercontent.com/wbern/cc-ping/${TAG}/install.sh" | bash -s -- "$TAG"
+```
 
 ### Homebrew (macOS / Linux)
 
