@@ -12,6 +12,7 @@ export interface ClaudeJsonResponse {
   duration_ms: number;
   duration_api_ms: number;
   is_error: boolean;
+  api_error_status?: number;
   num_turns: number;
   result: string;
   total_cost_usd: number;

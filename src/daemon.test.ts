@@ -975,6 +975,31 @@ describe("daemon", () => {
       expect(deps.log).toHaveBeenCalledWith("Retry failed for: alice");
     });
 
+    it("includes failure reasons in retry summary when runPing reports them", async () => {
+      let loopCalls = 0;
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({
+          failedHandles: ["alice"],
+          failureReasons: { alice: "auth expired — run claude /login" },
+        }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          loopCalls++;
+          return loopCalls > 3;
+        }),
+        log: vi.fn(),
+      };
+
+      await daemonLoop(60000, {}, deps);
+
+      expect(deps.log).toHaveBeenCalledWith(
+        "Retry failed for: alice (auth expired — run claude /login)",
+      );
+    });
+
     it("skips retry when shouldStop becomes true after failed ping", async () => {
       let pingCalls = 0;
       const deps = {

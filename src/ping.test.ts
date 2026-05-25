@@ -48,6 +48,28 @@ const errorJson = JSON.stringify({
   model_usage: { "claude-sonnet-4-20250514": {} },
 });
 
+function apiErrorJson(status: number, result = "api error"): string {
+  return JSON.stringify({
+    type: "result",
+    subtype: "success",
+    session_id: "s",
+    duration_ms: 1,
+    duration_api_ms: 1,
+    is_error: true,
+    api_error_status: status,
+    num_turns: 1,
+    result,
+    total_cost_usd: 0,
+    usage: {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+    },
+    model_usage: { "claude-sonnet-4-20250514": {} },
+  });
+}
+
 function setupMock(error: Error | null, stdout = "") {
   mockExecFile.mockImplementation(
     (_cmd: unknown, _args: unknown, _opts: unknown, cb: unknown) => {
@@ -163,6 +185,72 @@ describe("pingAccounts", () => {
     ]);
     expect(results[0].success).toBe(false);
     expect(results[0].error).toBe("timed out");
+  });
+
+  it("maps api_error_status 401 to an actionable auth hint", async () => {
+    setupMock(null, apiErrorJson(401, "Failed to authenticate"));
+    const results = await pingAccounts([
+      { handle: "auth", configDir: "/tmp/auth" },
+    ]);
+    expect(results[0].success).toBe(false);
+    expect(results[0].error).toBe("auth expired — run claude /login");
+  });
+
+  it("maps api_error_status 402 to a billing hint", async () => {
+    setupMock(null, apiErrorJson(402));
+    const results = await pingAccounts([{ handle: "a", configDir: "/tmp/a" }]);
+    expect(results[0].error).toBe("billing issue");
+  });
+
+  it("maps api_error_status 403 to a permission hint", async () => {
+    setupMock(null, apiErrorJson(403));
+    const results = await pingAccounts([{ handle: "a", configDir: "/tmp/a" }]);
+    expect(results[0].error).toBe("permission denied");
+  });
+
+  it("maps api_error_status 429 to rate limited", async () => {
+    setupMock(null, apiErrorJson(429));
+    const results = await pingAccounts([{ handle: "a", configDir: "/tmp/a" }]);
+    expect(results[0].error).toBe("rate limited");
+  });
+
+  it("maps 5xx api_error_status to server error with code", async () => {
+    setupMock(null, apiErrorJson(529));
+    const results = await pingAccounts([{ handle: "a", configDir: "/tmp/a" }]);
+    expect(results[0].error).toBe("server error (529)");
+  });
+
+  it("falls back to HTTP code for unmapped api_error_status", async () => {
+    setupMock(null, apiErrorJson(418));
+    const results = await pingAccounts([{ handle: "a", configDir: "/tmp/a" }]);
+    expect(results[0].error).toBe("HTTP 418");
+  });
+
+  it("leaves error undefined when is_error has no subtype or status", async () => {
+    setupMock(
+      null,
+      JSON.stringify({
+        type: "result",
+        subtype: "",
+        session_id: "s",
+        duration_ms: 1,
+        duration_api_ms: 1,
+        is_error: true,
+        num_turns: 1,
+        result: "",
+        total_cost_usd: 0,
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        model_usage: { "claude-sonnet-4-20250514": {} },
+      }),
+    );
+    const results = await pingAccounts([{ handle: "a", configDir: "/tmp/a" }]);
+    expect(results[0].success).toBe(false);
+    expect(results[0].error).toBeUndefined();
   });
 
   it("prefers claudeResponse subtype over execFile error", async () => {

@@ -25,6 +25,7 @@ interface RunPingOptions {
 interface RunPingResult {
   exitCode: number;
   failedHandles: string[];
+  failureReasons?: Record<string, string>;
 }
 
 export async function runPing(
@@ -108,12 +109,12 @@ export async function runPing(
   }
 
   if (failed > 0 && options.notify && !options.quietFailure) {
-    const failedHandles = results
+    const failures = results
       .filter((r) => !r.success)
-      .map((r) => r.handle);
+      .map((r) => (r.error ? `${r.handle} (${r.error})` : r.handle));
     await sendNotification(
       "cc-ping: ping failure",
-      `${failed} account(s) failed: ${failedHandles.join(", ")}`,
+      `${failed} account(s) failed: ${failures.join(", ")}`,
     );
   }
 
@@ -131,6 +132,10 @@ export async function runPing(
   }
 
   const failedHandles = results.filter((r) => !r.success).map((r) => r.handle);
+  const failureReasons: Record<string, string> = {};
+  for (const r of results) {
+    if (!r.success && r.error) failureReasons[r.handle] = r.error;
+  }
 
   if (options.json) {
     const jsonResults = results.map((r) => ({
@@ -140,12 +145,12 @@ export async function runPing(
       error: r.error,
     }));
     stdout(JSON.stringify(jsonResults, null, 2));
-    return { exitCode: failed > 0 ? 1 : 0, failedHandles };
+    return { exitCode: failed > 0 ? 1 : 0, failedHandles, failureReasons };
   }
 
   if (failed > 0) {
     logger.error(`${failed}/${results.length} failed`);
-    return { exitCode: 1, failedHandles };
+    return { exitCode: 1, failedHandles, failureReasons };
   }
 
   logger.log(`\nAll ${results.length} accounts pinged successfully`);

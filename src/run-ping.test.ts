@@ -81,14 +81,15 @@ describe("runPing", () => {
       { handle: "bob", configDir: "/tmp/bob" },
     ];
 
-    const { exitCode } = await runPing(accounts, {
+    const result = await runPing(accounts, {
       parallel: false,
       quiet: false,
       stdout,
       stderr,
     });
 
-    expect(exitCode).toBe(1);
+    expect(result.exitCode).toBe(1);
+    expect(result.failureReasons).toEqual({ bob: "timed out" });
   });
 
   it("suppresses all stdout in quiet mode", async () => {
@@ -428,7 +429,56 @@ describe("runPing", () => {
 
     expect(mockSendNotification).toHaveBeenCalledWith(
       "cc-ping: ping failure",
+      "1 account(s) failed: alice (timed out)",
+    );
+  });
+
+  it("omits parenthetical when failed ping has no error string", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: false, durationMs: 100 },
+    ]);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      notify: true,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(mockSendNotification).toHaveBeenCalledWith(
+      "cc-ping: ping failure",
       "1 account(s) failed: alice",
+    );
+  });
+
+  it("includes per-handle reason in notification for multi-account failures", async () => {
+    mockPingAccounts.mockResolvedValue([
+      {
+        handle: "alice",
+        success: false,
+        durationMs: 100,
+        error: "auth expired — run claude /login",
+      },
+      { handle: "bob", success: false, durationMs: 200, error: "HTTP 418" },
+    ]);
+    const accounts = [
+      { handle: "alice", configDir: "/tmp/alice" },
+      { handle: "bob", configDir: "/tmp/bob" },
+    ];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      notify: true,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(mockSendNotification).toHaveBeenCalledWith(
+      "cc-ping: ping failure",
+      "2 account(s) failed: alice (auth expired — run claude /login), bob (HTTP 418)",
     );
   });
 
@@ -544,7 +594,7 @@ describe("runPing", () => {
 
     expect(mockSendNotification).toHaveBeenCalledWith(
       "cc-ping: ping failure",
-      "1 account(s) failed: bob",
+      "1 account(s) failed: bob (timed out)",
     );
     expect(mockSendNotification).toHaveBeenCalledWith(
       "cc-ping: new window",

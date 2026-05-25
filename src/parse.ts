@@ -44,6 +44,10 @@ export function parseClaudeResponse(stdout: string): ClaudeJsonResponse | null {
     duration_ms: asNumber(raw.duration_ms),
     duration_api_ms: asNumber(raw.duration_api_ms),
     is_error: asBool(raw.is_error),
+    api_error_status:
+      typeof raw.api_error_status === "number"
+        ? raw.api_error_status
+        : undefined,
     num_turns: asNumber(raw.num_turns),
     result: asString(raw.result),
     total_cost_usd: asNumber(raw.total_cost_usd),

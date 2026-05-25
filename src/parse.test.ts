@@ -57,6 +57,25 @@ describe("parseClaudeResponse", () => {
     expect(result!.subtype).toBe("error_max_turns");
   });
 
+  it("captures api_error_status when present", () => {
+    const result = parseClaudeResponse(
+      makeResponse({
+        is_error: true,
+        subtype: "success",
+        api_error_status: 401,
+        result: "Failed to authenticate. API Error: 401 Invalid credentials",
+      }),
+    );
+    expect(result).not.toBeNull();
+    expect(result!.api_error_status).toBe(401);
+  });
+
+  it("leaves api_error_status undefined when absent", () => {
+    const result = parseClaudeResponse(makeResponse());
+    expect(result).not.toBeNull();
+    expect(result!.api_error_status).toBeUndefined();
+  });
+
   it("returns null for empty string", () => {
     expect(parseClaudeResponse("")).toBeNull();
   });

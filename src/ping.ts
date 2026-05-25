@@ -1,7 +1,20 @@
 import { execFile } from "node:child_process";
 import { parseClaudeResponse } from "./parse.js";
 import { generatePrompt } from "./prompt.js";
-import type { AccountConfig, PingResult } from "./types.js";
+import type { AccountConfig, ClaudeJsonResponse, PingResult } from "./types.js";
+
+function describeClaudeError(response: ClaudeJsonResponse): string | undefined {
+  const status = response.api_error_status;
+  if (status !== undefined) {
+    if (status === 401) return "auth expired — run claude /login";
+    if (status === 402) return "billing issue";
+    if (status === 403) return "permission denied";
+    if (status === 429) return "rate limited";
+    if (status >= 500) return `server error (${status})`;
+    return `HTTP ${status}`;
+  }
+  return response.subtype || undefined;
+}
 
 export function formatExecError(error: Error): string {
   if ((error as NodeJS.ErrnoException).code === "ABORT_ERR") {
@@ -59,13 +72,13 @@ function pingOne(
         let errorMsg: string | undefined;
         if (error) {
           // Prefer claudeResponse subtype (e.g. "error_max_turns") over raw execFile message
-          if (isError && claudeResponse?.subtype) {
-            errorMsg = claudeResponse.subtype;
+          if (isError && claudeResponse) {
+            errorMsg = describeClaudeError(claudeResponse);
           } else {
             errorMsg = formatExecError(error);
           }
-        } else if (isError) {
-          errorMsg = claudeResponse?.subtype;
+        } else if (isError && claudeResponse) {
+          errorMsg = describeClaudeError(claudeResponse);
         }
 
         resolve({

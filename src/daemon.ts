@@ -282,7 +282,10 @@ interface DaemonLoopDeps {
       wakeDelayMs?: number;
       signal?: AbortSignal;
     },
-  ) => Promise<{ failedHandles: string[] }>;
+  ) => Promise<{
+    failedHandles: string[];
+    failureReasons?: Record<string, string>;
+  }>;
   listAccounts: () => AccountConfig[];
   sleep: (ms: number) => Promise<void>;
   shouldStop: () => boolean;
@@ -447,7 +450,14 @@ export async function daemonLoop(
         pendingFailed = retry.failedHandles;
         prevAborted = retry.aborted;
         if (isLast && retry.failedHandles.length > 0) {
-          deps.log(`Retry failed for: ${retry.failedHandles.join(", ")}`);
+          const reasons = retry.failureReasons;
+          const summary = retry.failedHandles
+            .map((h) => {
+              const r = reasons?.[h];
+              return r ? `${h} (${r})` : h;
+            })
+            .join(", ");
+          deps.log(`Retry failed for: ${summary}`);
         }
       }
       if (pendingFailed.length > 0) {
