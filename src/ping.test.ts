@@ -226,6 +226,34 @@ describe("pingAccounts", () => {
     expect(results[0].error).toBe("HTTP 418");
   });
 
+  it("never reports literal subtype 'success' as the error label", async () => {
+    setupMock(
+      null,
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        session_id: "s",
+        duration_ms: 1,
+        duration_api_ms: 1,
+        is_error: true,
+        num_turns: 1,
+        result: "",
+        total_cost_usd: 0,
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        model_usage: { "claude-sonnet-4-20250514": {} },
+      }),
+    );
+    const results = await pingAccounts([{ handle: "a", configDir: "/tmp/a" }]);
+    expect(results[0].success).toBe(false);
+    expect(results[0].error).not.toBe("success");
+    expect(results[0].error).toBeUndefined();
+  });
+
   it("leaves error undefined when is_error has no subtype or status", async () => {
     setupMock(
       null,

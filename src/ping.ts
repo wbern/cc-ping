@@ -13,7 +13,8 @@ function describeClaudeError(response: ClaudeJsonResponse): string | undefined {
     if (status >= 500) return `server error (${status})`;
     return `HTTP ${status}`;
   }
-  return response.subtype || undefined;
+  const subtype = response.subtype;
+  return subtype && subtype !== "success" ? subtype : undefined;
 }
 
 export function formatExecError(error: Error): string {
