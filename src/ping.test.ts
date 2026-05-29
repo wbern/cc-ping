@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { formatExecError } from "./ping.js";
 
@@ -172,6 +173,16 @@ describe("pingAccounts", () => {
       }),
       expect.any(Function),
     );
+  });
+
+  it("spawns claude from a neutral temp dir, not the inherited cwd", async () => {
+    setupMock(null, validJson);
+    await pingAccounts([{ handle: "a", configDir: "/tmp/a" }]);
+    const opts = mockExecFile.mock.calls[0][2] as { cwd?: string };
+    expect(opts.cwd).toBe(tmpdir());
+    // Must not be the process cwd (where a stray CLAUDE.md / protected folder
+    // enumeration would otherwise trigger macOS TCC prompts).
+    expect(opts.cwd).not.toBe(process.cwd());
   });
 
   it("shows timed out instead of raw command on timeout error", async () => {

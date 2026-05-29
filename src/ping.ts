@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { tmpdir } from "node:os";
 import { parseClaudeResponse } from "./parse.js";
 import { generatePrompt } from "./prompt.js";
 import type { AccountConfig, ClaudeJsonResponse, PingResult } from "./types.js";
@@ -56,6 +57,13 @@ function pingOne(
         "1",
       ],
       {
+        // Run from a neutral temp dir, NOT the inherited cwd. Claude Code reads
+        // project/context files from its working directory on startup; if cc-ping
+        // (or the daemon) was launched from ~ or a synced/protected tree, that
+        // enumeration is attributed by macOS TCC to the parent ("cc-ping wants
+        // to access Google Drive") and recurs every ping. tmpdir has no project
+        // context and is never TCC-protected.
+        cwd: tmpdir(),
         env: { ...process.env, CLAUDE_CONFIG_DIR: account.configDir },
         timeout: PING_TIMEOUT_MS,
         killSignal: "SIGKILL",
