@@ -150,7 +150,7 @@ Show which account has its quota window resetting soonest — useful for knowing
 
 ### `cc-ping scan`
 
-Auto-discover Claude Code accounts. Scans `~` by default, or pass a directory to scan. Each subdirectory containing a `.claude.json` is detected as an account. Duplicate identities (same `accountUuid` across directories) are flagged.
+Auto-discover Claude Code accounts. Scans `~` by default, or pass a directory to scan. Each subdirectory containing a `.claude.json` is detected as an account. Duplicate identities (same `accountUuid` across directories) are flagged. The default `~` scan skips system and cloud-sync folders (Documents, Pictures, Google Drive, Dropbox, …) to avoid triggering macOS permission prompts; an explicitly provided directory is searched verbatim.
 
 ### `cc-ping check`
 

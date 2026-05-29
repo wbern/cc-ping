@@ -206,7 +206,9 @@ program
 
 program
   .command("scan")
-  .description("Auto-discover Claude Code accounts (scans ~ by default)")
+  .description(
+    "Auto-discover Claude Code accounts (scans ~ by default, skipping system/cloud folders)",
+  )
   .argument("[dir]", "Directory to scan (default: ~)")
   .option("--dry-run", "Show what would be added without saving", false)
   .action((dir, opts) => {

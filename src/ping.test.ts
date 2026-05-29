@@ -179,10 +179,9 @@ describe("pingAccounts", () => {
     setupMock(null, validJson);
     await pingAccounts([{ handle: "a", configDir: "/tmp/a" }]);
     const opts = mockExecFile.mock.calls[0][2] as { cwd?: string };
+    // Neutral cwd: no project context to load, never TCC-protected — so Claude
+    // Code's startup reads can't be attributed to cc-ping accessing ~/Drive/etc.
     expect(opts.cwd).toBe(tmpdir());
-    // Must not be the process cwd (where a stray CLAUDE.md / protected folder
-    // enumeration would otherwise trigger macOS TCC prompts).
-    expect(opts.cwd).not.toBe(process.cwd());
   });
 
   it("shows timed out instead of raw command on timeout error", async () => {

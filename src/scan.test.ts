@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -79,6 +79,29 @@ describe("scanAccounts", () => {
     mkdirSync(join(testHome, "DOWNLOADS"), { recursive: true });
     writeFileSync(join(testHome, "DOWNLOADS", ".claude.json"), "{}");
     expect(scanAccounts()).toEqual([]);
+  });
+
+  it("does not apply the skip list to an explicitly provided directory", () => {
+    // A user pointing scan at a specific dir means it verbatim — a folder that
+    // happens to be named like a system folder must still be discovered.
+    const customDir = join(testHome, "explicit");
+    mkdirSync(join(customDir, "documents"), { recursive: true });
+    writeFileSync(join(customDir, "documents", ".claude.json"), "{}");
+    const accounts = scanAccounts(customDir);
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0].handle).toBe("documents");
+  });
+
+  it("skips entries whose stat throws (dangling symlinks, etc.)", () => {
+    symlinkSync(
+      join(testHome, "does-not-exist"),
+      join(testHome, "broken-link"),
+    );
+    mkdirSync(join(testHome, "real-account"), { recursive: true });
+    writeFileSync(join(testHome, "real-account", ".claude.json"), "{}");
+    const accounts = scanAccounts();
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0].handle).toBe("real-account");
   });
 
   it("only discovers directories containing .claude.json", () => {
