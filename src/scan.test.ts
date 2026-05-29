@@ -55,6 +55,32 @@ describe("scanAccounts", () => {
     expect(accounts[0].handle).toBe("visible");
   });
 
+  it("skips macOS TCC-protected and cloud-sync folders by name", () => {
+    // These would trigger system permission prompts if walked. Even with a
+    // .claude.json inside, they must be skipped before any statSync/existsSync.
+    for (const name of [
+      "Documents",
+      "Pictures",
+      "Google Drive",
+      "Library",
+      "Dropbox",
+    ]) {
+      mkdirSync(join(testHome, name), { recursive: true });
+      writeFileSync(join(testHome, name, ".claude.json"), "{}");
+    }
+    mkdirSync(join(testHome, "real-account"), { recursive: true });
+    writeFileSync(join(testHome, "real-account", ".claude.json"), "{}");
+    const accounts = scanAccounts();
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0].handle).toBe("real-account");
+  });
+
+  it("matches skip-list folders case-insensitively", () => {
+    mkdirSync(join(testHome, "DOWNLOADS"), { recursive: true });
+    writeFileSync(join(testHome, "DOWNLOADS", ".claude.json"), "{}");
+    expect(scanAccounts()).toEqual([]);
+  });
+
   it("only discovers directories containing .claude.json", () => {
     const customDir = join(testHome, "home-scan");
     mkdirSync(join(customDir, "real-account"), { recursive: true });
