@@ -206,6 +206,36 @@ describe("pingAccounts", () => {
     expect(results[0].error).toBe("auth expired — run cc-ping login <handle>");
   });
 
+  it("maps a logged-out result to the auth hint even without a 401 status", async () => {
+    setupMock(
+      new Error("Command failed: claude"),
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        session_id: "s",
+        duration_ms: 1,
+        duration_api_ms: 1,
+        is_error: true,
+        api_error_status: null,
+        num_turns: 1,
+        result: "Not logged in · Please run /login",
+        total_cost_usd: 0,
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        model_usage: { "claude-sonnet-4-20250514": {} },
+      }),
+    );
+    const results = await pingAccounts([
+      { handle: "auth", configDir: "/tmp/auth" },
+    ]);
+    expect(results[0].success).toBe(false);
+    expect(results[0].error).toBe("auth expired — run cc-ping login <handle>");
+  });
+
   it("maps api_error_status 402 to a billing hint", async () => {
     setupMock(null, apiErrorJson(402));
     const results = await pingAccounts([{ handle: "a", configDir: "/tmp/a" }]);

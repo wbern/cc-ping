@@ -3,7 +3,7 @@ import { green, red } from "./color.js";
 import { appendHistoryEntry } from "./history.js";
 import { createLogger } from "./logger.js";
 import { sendNotification } from "./notify.js";
-import { pingAccounts } from "./ping.js";
+import { isAuthError, pingAccounts } from "./ping.js";
 import {
   formatTimeRemaining,
   getWindowReset,
@@ -104,7 +104,7 @@ export async function runPing(
         };
       }
       recordPing(r.handle, new Date(), meta);
-    } else if (r.claudeResponse?.api_error_status === 401) {
+    } else if (r.claudeResponse && isAuthError(r.claudeResponse)) {
       // Session auth expired — flag it so `cc-ping login` can re-auth it.
       recordAuthFailure(r.handle);
     }

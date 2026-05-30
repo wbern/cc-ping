@@ -12,9 +12,13 @@ vi.mock("node:os", async () => {
   };
 });
 
-vi.mock("./ping.js", () => ({
-  pingAccounts: vi.fn(),
-}));
+vi.mock("./ping.js", async () => {
+  const actual = await vi.importActual<typeof import("./ping.js")>("./ping.js");
+  return {
+    ...actual,
+    pingAccounts: vi.fn(),
+  };
+});
 
 vi.mock("./bell.js", () => ({
   ringBell: vi.fn(),
@@ -105,6 +109,31 @@ describe("runPing", () => {
         durationMs: 100,
         error: "auth expired — run cc-ping login <handle>",
         claudeResponse: apiError(401),
+      },
+    ]);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: true,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(getAccountsNeedingLogin()).toEqual(["alice"]);
+  });
+
+  it("flags an account for re-login when its ping reports a logged-out session", async () => {
+    mockPingAccounts.mockResolvedValue([
+      {
+        handle: "alice",
+        success: false,
+        durationMs: 100,
+        error: "auth expired — run cc-ping login <handle>",
+        claudeResponse: {
+          is_error: true,
+          result: "Not logged in · Please run /login",
+        } as ClaudeJsonResponse,
       },
     ]);
     const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];

@@ -4,10 +4,23 @@ import { parseClaudeResponse } from "./parse.js";
 import { generatePrompt } from "./prompt.js";
 import type { AccountConfig, ClaudeJsonResponse, PingResult } from "./types.js";
 
+// A logged-out or expired session does not come back as an HTTP 401. Claude
+// reports it as a successful-shaped result with is_error set and a result body
+// like "Not logged in · Please run /login" (api_error_status is null).
+export function isAuthError(response: ClaudeJsonResponse): boolean {
+  if (response.api_error_status === 401) return true;
+  return (
+    response.is_error &&
+    /not logged in|please run \/login/i.test(response.result)
+  );
+}
+
 function describeClaudeError(response: ClaudeJsonResponse): string | undefined {
   const status = response.api_error_status;
+  if (isAuthError(response)) {
+    return "auth expired — run cc-ping login <handle>";
+  }
   if (status !== undefined) {
-    if (status === 401) return "auth expired — run cc-ping login <handle>";
     if (status === 402) return "billing issue";
     if (status === 403) return "permission denied";
     if (status === 429) return "rate limited";
