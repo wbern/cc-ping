@@ -7,6 +7,7 @@ import type { DuplicateGroup } from "./identity.js";
 import { findDuplicates } from "./identity.js";
 import {
   formatTimeRemaining,
+  getAccountsNeedingLogin,
   getLastPing,
   getLastPingMeta,
   getWindowReset,
@@ -32,6 +33,7 @@ interface AccountStatus {
   peakStartHour?: number;
   peakEndHour?: number;
   deferReason?: string;
+  needsLogin?: boolean;
 }
 
 const STATUS_LABELS: Record<AccountStatus["windowStatus"], string> = {
@@ -103,6 +105,10 @@ export function formatStatusLine(
   }
   lines.push(`    - last ping: ${ping}`);
 
+  if (status.needsLogin) {
+    lines.push(`    - needs login: run cc-ping login ${handle}`);
+  }
+
   if (status.timeUntilReset !== null) {
     lines.push(`    - resets in ${status.timeUntilReset}`);
   }
@@ -171,6 +177,8 @@ export function getAccountStatuses(
   deferredHandles?: Map<string, DeferInfo>,
   coveredHandles?: Map<string, DeferInfo | null>,
 ): AccountStatus[] {
+  const needsLoginSet = new Set(getAccountsNeedingLogin());
+
   // Build handle -> other handles lookup
   const dupLookup = new Map<string, string>();
   if (duplicates) {
@@ -189,6 +197,7 @@ export function getAccountStatuses(
     const lastTokens =
       meta !== null ? meta.inputTokens + meta.outputTokens : null;
     const duplicateOf = dupLookup.get(account.handle);
+    const needsLogin = needsLoginSet.has(account.handle) || undefined;
 
     if (!lastPing) {
       return {
@@ -200,6 +209,7 @@ export function getAccountStatuses(
         lastCostUsd,
         lastTokens,
         duplicateOf,
+        needsLogin,
       };
     }
     const window = getWindowReset(account.handle, now);
@@ -234,6 +244,7 @@ export function getAccountStatuses(
       peakStartHour,
       peakEndHour,
       deferReason,
+      needsLogin,
     };
   });
 }

@@ -23,7 +23,7 @@ vi.mock("./identity.js", () => ({
 
 const { listAccounts } = await import("./config.js");
 const { findDuplicates } = await import("./identity.js");
-const { recordPing } = await import("./state.js");
+const { recordPing, recordAuthFailure } = await import("./state.js");
 
 import type { DeferInfo } from "./status.js";
 
@@ -99,6 +99,15 @@ describe("getAccountStatuses", () => {
       lastCostUsd: null,
       lastTokens: null,
     });
+  });
+
+  it("marks an account flagged in state as needing login", () => {
+    recordPing("dana", new Date("2025-01-01T00:00:00.000Z"));
+    recordAuthFailure("dana", new Date("2025-01-01T00:01:00.000Z"));
+    const now = new Date("2025-01-01T06:00:00.000Z");
+    const accounts = [{ handle: "dana", configDir: "/tmp/dana" }];
+    const statuses = getAccountStatuses(accounts, now);
+    expect(statuses[0].needsLogin).toBe(true);
   });
 
   it("returns deferred status with ping hour when account is in deferred map", () => {
@@ -284,6 +293,21 @@ describe("formatStatusLine", () => {
       lastTokens: null,
     });
     expect(line).not.toContain("cc-ping wake");
+  });
+
+  it("flags an account that needs re-login with the login command", () => {
+    const line = formatStatusLine({
+      handle: "alice",
+      configDir: "/tmp/alice",
+      lastPing: "2025-01-01T00:00:00.000Z",
+      windowStatus: "needs ping",
+      timeUntilReset: null,
+      lastCostUsd: null,
+      lastTokens: null,
+      needsLogin: true,
+    });
+    expect(line).toContain("needs login");
+    expect(line).toContain("cc-ping login alice");
   });
 
   it("formats an unknown account", () => {
