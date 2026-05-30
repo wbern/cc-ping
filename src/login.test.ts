@@ -4,7 +4,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loginAccount, resolveLoginTarget } from "./login.js";
+import { loginAccount, resolveLoginTargets } from "./login.js";
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
 const mockSpawn = vi.mocked(spawn);
@@ -39,47 +39,49 @@ afterEach(() => {
   rmSync(base, { recursive: true, force: true });
 });
 
-describe("resolveLoginTarget", () => {
-  it("returns the named account when a handle is given", () => {
+describe("resolveLoginTargets", () => {
+  it("returns just the named account when a handle is given", () => {
     const accounts = [
       { handle: "alice", configDir: makeAuthedDir("alice") },
       { handle: "bob", configDir: makeAuthedDir("bob") },
     ];
-    expect(resolveLoginTarget(accounts, "bob").handle).toBe("bob");
+    const targets = resolveLoginTargets(accounts, "bob", []);
+    expect(targets.map((t) => t.handle)).toEqual(["bob"]);
   });
 
   it("propagates filterAccounts error for an unknown handle", () => {
     const accounts = [{ handle: "alice", configDir: makeAuthedDir("alice") }];
-    expect(() => resolveLoginTarget(accounts, "nope")).toThrow(
+    expect(() => resolveLoginTargets(accounts, "nope", [])).toThrow(
       "Unknown account(s): nope",
     );
   });
 
-  it("auto-picks the single unauthenticated account when no handle is given", () => {
+  it("returns all flagged accounts in config order when no handle is given", () => {
     const accounts = [
       { handle: "alice", configDir: makeAuthedDir("alice") },
       { handle: "bob", configDir: makeUnauthedDir("bob") },
+      { handle: "carol", configDir: makeAuthedDir("carol") },
     ];
-    expect(resolveLoginTarget(accounts, undefined).handle).toBe("bob");
+    const targets = resolveLoginTargets(accounts, undefined, ["carol", "bob"]);
+    expect(targets.map((t) => t.handle)).toEqual(["bob", "carol"]);
   });
 
-  it("throws when no account is unauthenticated", () => {
+  it("ignores flagged handles that are no longer configured", () => {
+    const accounts = [{ handle: "alice", configDir: makeAuthedDir("alice") }];
+    const targets = resolveLoginTargets(accounts, undefined, [
+      "alice",
+      "ghost",
+    ]);
+    expect(targets.map((t) => t.handle)).toEqual(["alice"]);
+  });
+
+  it("throws when nothing is flagged as needing login", () => {
     const accounts = [
       { handle: "alice", configDir: makeAuthedDir("alice") },
       { handle: "bob", configDir: makeAuthedDir("bob") },
     ];
-    expect(() => resolveLoginTarget(accounts, undefined)).toThrow(
-      "No unauthenticated accounts found. Specify one: cc-ping login <handle>",
-    );
-  });
-
-  it("throws and lists handles when multiple accounts are unauthenticated", () => {
-    const accounts = [
-      { handle: "alice", configDir: makeUnauthedDir("alice") },
-      { handle: "bob", configDir: makeUnauthedDir("bob") },
-    ];
-    expect(() => resolveLoginTarget(accounts, undefined)).toThrow(
-      "Multiple unauthenticated accounts (alice, bob). Specify one: cc-ping login <handle>",
+    expect(() => resolveLoginTargets(accounts, undefined, [])).toThrow(
+      "No accounts flagged as needing login. Specify one: cc-ping login <handle>",
     );
   });
 });

@@ -53,6 +53,7 @@ export interface AccountIdentity {
 export interface PingState {
   lastPing: Record<string, string>; // handle -> ISO 8601 timestamp
   lastPingMeta?: Record<string, PingMeta>;
+  needsLogin?: Record<string, string>; // handle -> ISO 8601 timestamp of first 401
 }
 
 export interface DaemonState {

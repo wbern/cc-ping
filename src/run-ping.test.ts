@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ClaudeJsonResponse } from "./types.js";
 
 vi.mock("node:os", async () => {
   const actual = await vi.importActual<typeof import("node:os")>("node:os");
@@ -27,8 +28,12 @@ const { pingAccounts } = await import("./ping.js");
 const { ringBell } = await import("./bell.js");
 const { sendNotification } = await import("./notify.js");
 const { readHistory } = await import("./history.js");
-const { recordPing } = await import("./state.js");
+const { recordPing, getAccountsNeedingLogin } = await import("./state.js");
 const { runPing } = await import("./run-ping.js");
+
+function apiError(status: number): ClaudeJsonResponse {
+  return { is_error: true, api_error_status: status } as ClaudeJsonResponse;
+}
 
 const mockPingAccounts = vi.mocked(pingAccounts);
 const mockRingBell = vi.mocked(ringBell);
@@ -90,6 +95,50 @@ describe("runPing", () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.failureReasons).toEqual({ bob: "timed out" });
+  });
+
+  it("flags an account for re-login when its ping returns HTTP 401", async () => {
+    mockPingAccounts.mockResolvedValue([
+      {
+        handle: "alice",
+        success: false,
+        durationMs: 100,
+        error: "auth expired — run cc-ping login <handle>",
+        claudeResponse: apiError(401),
+      },
+    ]);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: true,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(getAccountsNeedingLogin()).toEqual(["alice"]);
+  });
+
+  it("does not flag re-login for non-401 failures", async () => {
+    mockPingAccounts.mockResolvedValue([
+      {
+        handle: "alice",
+        success: false,
+        durationMs: 100,
+        error: "rate limited",
+        claudeResponse: apiError(429),
+      },
+    ]);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: true,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(getAccountsNeedingLogin()).toEqual([]);
   });
 
   it("suppresses all stdout in quiet mode", async () => {

@@ -1,6 +1,5 @@
 import { type ChildProcess, spawn as nodeSpawn } from "node:child_process";
 import { tmpdir } from "node:os";
-import { checkAccount } from "./check.js";
 import { filterAccounts } from "./filter-accounts.js";
 import { readAccountIdentity } from "./identity.js";
 import type { AccountConfig } from "./types.js";
@@ -24,32 +23,28 @@ interface LoginResult {
   exitCode: number;
 }
 
-// Resolve which account to log in. With a handle, reuse filterAccounts (and its
-// "Unknown account(s)" error). With no handle, auto-pick the single account that
-// has no stored credentials; ambiguity or absence is an error telling the user
-// to name a handle.
-export function resolveLoginTarget(
+// Resolve which accounts to log in. With a handle, reuse filterAccounts (and its
+// "Unknown account(s)" error) and return just that account. With no handle,
+// return every configured account flagged as needing login (a 401 recorded in
+// state), in config order; an empty set is an error telling the user to name a
+// handle.
+export function resolveLoginTargets(
   accounts: AccountConfig[],
   handle: string | undefined,
-): AccountConfig {
+  needsLogin: string[],
+): AccountConfig[] {
   if (handle) {
-    return filterAccounts(accounts, [handle])[0];
+    return filterAccounts(accounts, [handle]);
   }
 
-  const unauthenticated = accounts.filter((a) => !checkAccount(a).healthy);
-  if (unauthenticated.length === 1) {
-    return unauthenticated[0];
-  }
-  if (unauthenticated.length === 0) {
+  const flagged = new Set(needsLogin);
+  const targets = accounts.filter((a) => flagged.has(a.handle));
+  if (targets.length === 0) {
     throw new Error(
-      "No unauthenticated accounts found. Specify one: cc-ping login <handle>",
+      "No accounts flagged as needing login. Specify one: cc-ping login <handle>",
     );
   }
-  throw new Error(
-    `Multiple unauthenticated accounts (${unauthenticated
-      .map((a) => a.handle)
-      .join(", ")}). Specify one: cc-ping login <handle>`,
-  );
+  return targets;
 }
 
 // Run the official `claude auth login` OAuth flow scoped to the account's

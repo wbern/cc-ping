@@ -50,6 +50,9 @@ function isPingState(x: unknown): x is PingState {
   if (s.lastPingMeta !== undefined && !isPingMetaRecord(s.lastPingMeta)) {
     return false;
   }
+  if (s.needsLogin !== undefined && !isStringRecord(s.needsLogin)) {
+    return false;
+  }
   return true;
 }
 
@@ -100,7 +103,38 @@ export function recordPing(
     if (!state.lastPingMeta) state.lastPingMeta = {};
     state.lastPingMeta[handle] = meta;
   }
+  // A successful ping means the session is valid again — clear any stale flag.
+  if (state.needsLogin) delete state.needsLogin[handle];
   saveState(state);
+}
+
+// Record that an account's session failed auth (HTTP 401), so `cc-ping login`
+// can pick it up with no argument. Keeps the first-observed timestamp.
+export function recordAuthFailure(
+  handle: string,
+  timestamp: Date = new Date(),
+): void {
+  const state = loadState();
+  if (!state.needsLogin) state.needsLogin = {};
+  if (!state.needsLogin[handle]) {
+    state.needsLogin[handle] = timestamp.toISOString();
+    saveState(state);
+  }
+}
+
+export function clearAuthFailure(handle: string): boolean {
+  const state = loadState();
+  if (state.needsLogin && handle in state.needsLogin) {
+    delete state.needsLogin[handle];
+    saveState(state);
+    return true;
+  }
+  return false;
+}
+
+export function getAccountsNeedingLogin(): string[] {
+  const state = loadState();
+  return state.needsLogin ? Object.keys(state.needsLogin) : [];
 }
 
 export function getLastPingMeta(handle: string): PingMeta | null {
@@ -119,6 +153,10 @@ export function clearPingState(handle: string): boolean {
     delete state.lastPingMeta[handle];
     changed = true;
   }
+  if (state.needsLogin && handle in state.needsLogin) {
+    delete state.needsLogin[handle];
+    changed = true;
+  }
   if (changed) saveState(state);
   return changed;
 }
@@ -131,6 +169,11 @@ function collectOrphans(state: PingState, activeHandles: string[]): string[] {
   }
   if (state.lastPingMeta) {
     for (const h of Object.keys(state.lastPingMeta)) {
+      if (!active.has(h)) orphans.add(h);
+    }
+  }
+  if (state.needsLogin) {
+    for (const h of Object.keys(state.needsLogin)) {
       if (!active.has(h)) orphans.add(h);
     }
   }
@@ -148,6 +191,7 @@ export function pruneOrphanState(activeHandles: string[]): string[] {
   for (const h of orphans) {
     delete state.lastPing[h];
     if (state.lastPingMeta) delete state.lastPingMeta[h];
+    if (state.needsLogin) delete state.needsLogin[h];
   }
   saveState(state);
   return orphans;

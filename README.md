@@ -159,7 +159,9 @@ Verify that each configured account's config directory exists and has credential
 
 ### `cc-ping login [handle]`
 
-Re-authenticate an account through the official `claude auth login` OAuth flow — useful after a ping reports `auth expired` (HTTP 401). The browser/device flow runs interactively with no timeout, scoped to the account's `CLAUDE_CONFIG_DIR`, and prefills the account's email. Credentials are isolated per config directory, so logging into one account never disturbs another's session. With no handle, the single account that has no stored credentials is auto-selected; if zero or several lack credentials, name one explicitly.
+Re-authenticate accounts through the official `claude auth login` OAuth flow — useful after a ping reports `auth expired` (HTTP 401). The browser/device flow runs interactively with no timeout, scoped to each account's `CLAUDE_CONFIG_DIR`, and prefills the account's email. Credentials are isolated per config directory, so logging into one account never disturbs another's session.
+
+When a ping receives a 401, cc-ping records that account as needing login. Running `cc-ping login` with no handle logs in **all** flagged accounts in turn — it prints how many need login, then runs each interactive flow sequentially (the next begins only after the previous one exits). A successful login (or a later successful ping) clears the flag. Pass a handle to re-auth one specific account regardless of its flag.
 
 ### `cc-ping add <config-dir>`
 

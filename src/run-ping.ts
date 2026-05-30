@@ -4,7 +4,12 @@ import { appendHistoryEntry } from "./history.js";
 import { createLogger } from "./logger.js";
 import { sendNotification } from "./notify.js";
 import { pingAccounts } from "./ping.js";
-import { formatTimeRemaining, getWindowReset, recordPing } from "./state.js";
+import {
+  formatTimeRemaining,
+  getWindowReset,
+  recordAuthFailure,
+  recordPing,
+} from "./state.js";
 import type { AccountConfig, PingMeta, PingResult } from "./types.js";
 
 interface RunPingOptions {
@@ -99,6 +104,9 @@ export async function runPing(
         };
       }
       recordPing(r.handle, new Date(), meta);
+    } else if (r.claudeResponse?.api_error_status === 401) {
+      // Session auth expired — flag it so `cc-ping login` can re-auth it.
+      recordAuthFailure(r.handle);
     }
   }
 

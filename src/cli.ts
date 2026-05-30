@@ -29,7 +29,7 @@ import {
 import { formatTimeAgo } from "./format.js";
 import { formatHistoryEntry, readHistory } from "./history.js";
 import { findDuplicates } from "./identity.js";
-import { loginAccount, resolveLoginTarget } from "./login.js";
+import { loginAccount, resolveLoginTargets } from "./login.js";
 import { getNextReset } from "./next-reset.js";
 import { sendNotification } from "./notify.js";
 import { setConfigDir } from "./paths.js";
@@ -42,7 +42,12 @@ import {
   shouldDefer,
 } from "./schedule.js";
 import { parseStagger } from "./stagger.js";
-import { findOrphanHandles, pruneOrphanState } from "./state.js";
+import {
+  clearAuthFailure,
+  findOrphanHandles,
+  getAccountsNeedingLogin,
+  pruneOrphanState,
+} from "./state.js";
 import type { DeferInfo } from "./status.js";
 import { getAccountStatuses, printAccountTable } from "./status.js";
 import { suggestAccount } from "./suggest.js";
@@ -207,10 +212,10 @@ program
 
 program
   .command("login")
-  .description("Sign in to an account via the official Claude OAuth flow")
+  .description("Sign in to accounts via the official Claude OAuth flow")
   .argument(
     "[handle]",
-    "Account handle to log in (default: the single unauthenticated account)",
+    "Account handle to log in (default: all accounts flagged as needing login)",
   )
   .action(async (handle: string | undefined) => {
     const accounts = listAccounts();
@@ -220,16 +225,44 @@ program
       );
       process.exit(1);
     }
-    let target: ReturnType<typeof resolveLoginTarget>;
+    let targets: ReturnType<typeof resolveLoginTargets>;
     try {
-      target = resolveLoginTarget(accounts, handle);
+      targets = resolveLoginTargets(
+        accounts,
+        handle,
+        getAccountsNeedingLogin(),
+      );
     } catch (err) {
       console.error((err as Error).message);
       process.exit(1);
     }
-    console.log(`Logging in: ${target.handle} -> ${target.configDir}`);
-    const result = await loginAccount(target);
-    process.exit(result.exitCode);
+    if (targets.length > 1) {
+      console.log(
+        `${targets.length} account(s) need login: ${targets
+          .map((t) => t.handle)
+          .join(", ")}`,
+      );
+    }
+    let failed = 0;
+    for (let i = 0; i < targets.length; i++) {
+      const target = targets[i];
+      const prefix = targets.length > 1 ? `[${i + 1}/${targets.length}] ` : "";
+      console.log(
+        `${prefix}Logging in: ${target.handle} -> ${target.configDir}`,
+      );
+      try {
+        const result = await loginAccount(target);
+        if (result.exitCode === 0) {
+          clearAuthFailure(target.handle);
+        } else {
+          failed++;
+        }
+      } catch (err) {
+        console.error(`  ${target.handle}: ${(err as Error).message}`);
+        failed++;
+      }
+    }
+    process.exit(failed > 0 ? 1 : 0);
   });
 
 program

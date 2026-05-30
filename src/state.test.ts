@@ -30,6 +30,9 @@ const {
   clearPingState,
   findOrphanHandles,
   pruneOrphanState,
+  recordAuthFailure,
+  clearAuthFailure,
+  getAccountsNeedingLogin,
 } = await import("./state.js");
 
 describe("state", () => {
@@ -176,6 +179,18 @@ describe("state", () => {
         readdirSync(stateDir).some((f) => f.startsWith("state.json.corrupt")),
       ).toBe(true);
     });
+
+    it("quarantines state with non-string needsLogin values", () => {
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(
+        join(stateDir, "state.json"),
+        JSON.stringify({ lastPing: {}, needsLogin: { alice: 123 } }),
+      );
+      expect(loadState()).toEqual({ lastPing: {} });
+      expect(
+        readdirSync(stateDir).some((f) => f.startsWith("state.json.corrupt")),
+      ).toBe(true);
+    });
   });
 
   describe("saveState", () => {
@@ -238,6 +253,56 @@ describe("state", () => {
       recordPing("alice", new Date("2025-06-01T00:00:00.000Z"));
       const state = loadState();
       expect(state.lastPing.alice).toBe("2025-06-01T00:00:00.000Z");
+    });
+
+    it("clears a stale needs-login flag on a successful ping", () => {
+      recordAuthFailure("alice");
+      expect(getAccountsNeedingLogin()).toEqual(["alice"]);
+      recordPing("alice", new Date("2025-06-01T00:00:00.000Z"));
+      expect(getAccountsNeedingLogin()).toEqual([]);
+    });
+  });
+
+  describe("auth failure flags", () => {
+    it("returns no accounts needing login by default", () => {
+      expect(getAccountsNeedingLogin()).toEqual([]);
+    });
+
+    it("records an auth failure with an explicit timestamp", () => {
+      recordAuthFailure("alice", new Date("2025-03-15T10:00:00.000Z"));
+      expect(loadState().needsLogin?.alice).toBe("2025-03-15T10:00:00.000Z");
+      expect(getAccountsNeedingLogin()).toEqual(["alice"]);
+    });
+
+    it("records an auth failure with a default timestamp", () => {
+      const before = new Date();
+      recordAuthFailure("bob");
+      const after = new Date();
+      const recorded = new Date(loadState().needsLogin?.bob ?? 0).getTime();
+      expect(recorded).toBeGreaterThanOrEqual(before.getTime());
+      expect(recorded).toBeLessThanOrEqual(after.getTime());
+    });
+
+    it("keeps the first-observed timestamp when flagged again", () => {
+      recordAuthFailure("alice", new Date("2025-03-15T10:00:00.000Z"));
+      recordAuthFailure("alice", new Date("2025-03-16T10:00:00.000Z"));
+      expect(loadState().needsLogin?.alice).toBe("2025-03-15T10:00:00.000Z");
+    });
+
+    it("clears an auth failure flag", () => {
+      recordAuthFailure("alice");
+      expect(clearAuthFailure("alice")).toBe(true);
+      expect(getAccountsNeedingLogin()).toEqual([]);
+    });
+
+    it("returns false when clearing a handle that is not flagged", () => {
+      recordAuthFailure("alice");
+      expect(clearAuthFailure("ghost")).toBe(false);
+      expect(getAccountsNeedingLogin()).toEqual(["alice"]);
+    });
+
+    it("returns false when clearing with no needsLogin state at all", () => {
+      expect(clearAuthFailure("alice")).toBe(false);
     });
   });
 
@@ -382,6 +447,21 @@ describe("state", () => {
       expect(clearPingState("orphan")).toBe(true);
       expect(loadState().lastPingMeta?.orphan).toBeUndefined();
     });
+
+    it("removes a needs-login flag along with ping state", () => {
+      recordPing("alice", new Date("2025-03-15T10:00:00.000Z"));
+      recordAuthFailure("alice");
+      expect(clearPingState("alice")).toBe(true);
+      const state = loadState();
+      expect(state.lastPing.alice).toBeUndefined();
+      expect(state.needsLogin?.alice).toBeUndefined();
+    });
+
+    it("removes only the needs-login flag when no ping state exists", () => {
+      recordAuthFailure("orphan");
+      expect(clearPingState("orphan")).toBe(true);
+      expect(getAccountsNeedingLogin()).toEqual([]);
+    });
   });
 
   describe("findOrphanHandles", () => {
@@ -419,6 +499,14 @@ describe("state", () => {
       });
       expect(findOrphanHandles(["alice"])).toEqual(["stranded"]);
     });
+
+    it("finds orphans present only in needsLogin", () => {
+      saveState({
+        lastPing: { alice: "2025-03-15T10:00:00.000Z" },
+        needsLogin: { stranded: "2025-03-15T10:00:00.000Z" },
+      });
+      expect(findOrphanHandles(["alice"])).toEqual(["stranded"]);
+    });
   });
 
   describe("pruneOrphanState", () => {
@@ -451,6 +539,20 @@ describe("state", () => {
       saveState({ lastPing: { ghost: "2025-03-15T10:00:00.000Z" } });
       expect(pruneOrphanState([])).toEqual(["ghost"]);
       expect(loadState().lastPing.ghost).toBeUndefined();
+    });
+
+    it("removes orphan entries from needsLogin", () => {
+      saveState({
+        lastPing: { alice: "2025-03-15T10:00:00.000Z" },
+        needsLogin: {
+          alice: "2025-03-15T10:00:00.000Z",
+          ghost: "2025-03-10T10:00:00.000Z",
+        },
+      });
+      expect(pruneOrphanState(["alice"])).toEqual(["ghost"]);
+      const state = loadState();
+      expect(state.needsLogin?.ghost).toBeUndefined();
+      expect(state.needsLogin?.alice).toBe("2025-03-15T10:00:00.000Z");
     });
   });
 
