@@ -15,10 +15,13 @@ export function isAuthError(response: ClaudeJsonResponse): boolean {
   );
 }
 
-function describeClaudeError(response: ClaudeJsonResponse): string | undefined {
+function describeClaudeError(
+  response: ClaudeJsonResponse,
+  handle: string,
+): string | undefined {
   const status = response.api_error_status;
   if (isAuthError(response)) {
-    return "auth expired — run cc-ping login <handle>";
+    return `auth expired — run cc-ping login ${handle}`;
   }
   if (status !== undefined) {
     if (status === 402) return "billing issue";
@@ -95,12 +98,12 @@ function pingOne(
         if (error) {
           // Prefer claudeResponse subtype (e.g. "error_max_turns") over raw execFile message
           if (isError && claudeResponse) {
-            errorMsg = describeClaudeError(claudeResponse);
+            errorMsg = describeClaudeError(claudeResponse, account.handle);
           } else {
             errorMsg = formatExecError(error);
           }
         } else if (isError && claudeResponse) {
-          errorMsg = describeClaudeError(claudeResponse);
+          errorMsg = describeClaudeError(claudeResponse, account.handle);
         }
 
         resolve({

@@ -203,7 +203,7 @@ describe("pingAccounts", () => {
       { handle: "auth", configDir: "/tmp/auth" },
     ]);
     expect(results[0].success).toBe(false);
-    expect(results[0].error).toBe("auth expired — run cc-ping login <handle>");
+    expect(results[0].error).toBe("auth expired — run cc-ping login auth");
   });
 
   it("maps a logged-out result to the auth hint even without a 401 status", async () => {
@@ -233,7 +233,7 @@ describe("pingAccounts", () => {
       { handle: "auth", configDir: "/tmp/auth" },
     ]);
     expect(results[0].success).toBe(false);
-    expect(results[0].error).toBe("auth expired — run cc-ping login <handle>");
+    expect(results[0].error).toBe("auth expired — run cc-ping login auth");
   });
 
   it("maps api_error_status 402 to a billing hint", async () => {
