@@ -29,6 +29,7 @@ import {
 import { formatTimeAgo } from "./format.js";
 import { formatHistoryEntry, readHistory } from "./history.js";
 import { findDuplicates } from "./identity.js";
+import { loginAccount, resolveLoginTarget } from "./login.js";
 import { getNextReset } from "./next-reset.js";
 import { sendNotification } from "./notify.js";
 import { setConfigDir } from "./paths.js";
@@ -202,6 +203,33 @@ program
     if (unhealthy > 0) {
       process.exit(1);
     }
+  });
+
+program
+  .command("login")
+  .description("Sign in to an account via the official Claude OAuth flow")
+  .argument(
+    "[handle]",
+    "Account handle to log in (default: the single unauthenticated account)",
+  )
+  .action(async (handle: string | undefined) => {
+    const accounts = listAccounts();
+    if (accounts.length === 0) {
+      console.error(
+        "No accounts configured. Run: cc-ping scan or cc-ping add <config-dir>",
+      );
+      process.exit(1);
+    }
+    let target: ReturnType<typeof resolveLoginTarget>;
+    try {
+      target = resolveLoginTarget(accounts, handle);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exit(1);
+    }
+    console.log(`Logging in: ${target.handle} -> ${target.configDir}`);
+    const result = await loginAccount(target);
+    process.exit(result.exitCode);
   });
 
 program

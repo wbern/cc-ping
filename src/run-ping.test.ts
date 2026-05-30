@@ -459,7 +459,7 @@ describe("runPing", () => {
         handle: "alice",
         success: false,
         durationMs: 100,
-        error: "auth expired — run claude /login",
+        error: "auth expired — run cc-ping login <handle>",
       },
       { handle: "bob", success: false, durationMs: 200, error: "HTTP 418" },
     ]);
@@ -478,7 +478,7 @@ describe("runPing", () => {
 
     expect(mockSendNotification).toHaveBeenCalledWith(
       "cc-ping: ping failure",
-      "2 account(s) failed: alice (auth expired — run claude /login), bob (HTTP 418)",
+      "2 account(s) failed: alice (auth expired — run cc-ping login <handle>), bob (HTTP 418)",
     );
   });
 

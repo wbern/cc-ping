@@ -203,7 +203,7 @@ describe("pingAccounts", () => {
       { handle: "auth", configDir: "/tmp/auth" },
     ]);
     expect(results[0].success).toBe(false);
-    expect(results[0].error).toBe("auth expired — run claude /login");
+    expect(results[0].error).toBe("auth expired — run cc-ping login <handle>");
   });
 
   it("maps api_error_status 402 to a billing hint", async () => {

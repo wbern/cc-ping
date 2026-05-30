@@ -980,7 +980,9 @@ describe("daemon", () => {
       const deps = {
         runPing: vi.fn().mockResolvedValue({
           failedHandles: ["alice"],
-          failureReasons: { alice: "auth expired — run claude /login" },
+          failureReasons: {
+            alice: "auth expired — run cc-ping login <handle>",
+          },
         }),
         listAccounts: vi
           .fn()
@@ -996,7 +998,7 @@ describe("daemon", () => {
       await daemonLoop(60000, {}, deps);
 
       expect(deps.log).toHaveBeenCalledWith(
-        "Retry failed for: alice (auth expired — run claude /login)",
+        "Retry failed for: alice (auth expired — run cc-ping login <handle>)",
       );
     });
 

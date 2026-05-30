@@ -95,6 +95,7 @@ Discover accounts from `~` (or a custom directory), then verify they have valid 
 cc-ping scan              # auto-discover accounts from ~
 cc-ping scan /path/to/dir # scan a specific directory
 cc-ping check             # verify credentials are valid
+cc-ping login <handle>    # re-authenticate an account that lost its session
 cc-ping list              # show configured accounts
 ```
 
@@ -155,6 +156,10 @@ Auto-discover Claude Code accounts. Scans `~` by default, or pass a directory to
 ### `cc-ping check`
 
 Verify that each configured account's config directory exists and has credentials.
+
+### `cc-ping login [handle]`
+
+Re-authenticate an account through the official `claude auth login` OAuth flow — useful after a ping reports `auth expired` (HTTP 401). The browser/device flow runs interactively with no timeout, scoped to the account's `CLAUDE_CONFIG_DIR`, and prefills the account's email. Credentials are isolated per config directory, so logging into one account never disturbs another's session. With no handle, the single account that has no stored credentials is auto-selected; if zero or several lack credentials, name one explicitly.
 
 ### `cc-ping add <config-dir>`
 

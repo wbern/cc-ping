@@ -7,7 +7,7 @@ import type { AccountConfig, ClaudeJsonResponse, PingResult } from "./types.js";
 function describeClaudeError(response: ClaudeJsonResponse): string | undefined {
   const status = response.api_error_status;
   if (status !== undefined) {
-    if (status === 401) return "auth expired — run claude /login";
+    if (status === 401) return "auth expired — run cc-ping login <handle>";
     if (status === 402) return "billing issue";
     if (status === 403) return "permission denied";
     if (status === 429) return "rate limited";
