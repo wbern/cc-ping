@@ -2,6 +2,7 @@ import { type ChildProcess, spawn as nodeSpawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { filterAccounts } from "./filter-accounts.js";
 import { readAccountIdentity } from "./identity.js";
+import { clearAuthFailure } from "./state.js";
 import type { AccountConfig } from "./types.js";
 
 interface LoginDeps {
@@ -81,4 +82,55 @@ export function loginAccount(
       });
     });
   });
+}
+
+interface RunLoginsDeps {
+  // Injected for tests; default to the real implementations / console sinks.
+  loginAccount?: (account: AccountConfig) => Promise<LoginResult>;
+  clearAuthFailure?: (handle: string) => void;
+  log?: (message: string) => void;
+  error?: (message: string) => void;
+}
+
+// Log in each target sequentially (one interactive OAuth flow at a time), in the
+// order resolveLoginTargets returned them. When more than one account needs
+// login we announce the batch up front and number each step. A successful login
+// (exit 0) clears the account's recorded auth failure; a non-zero exit or a
+// spawn error counts toward the returned failure total without aborting the
+// remaining logins. Returns the number of accounts that failed to log in.
+export async function runLogins(
+  targets: AccountConfig[],
+  deps: RunLoginsDeps = {},
+): Promise<number> {
+  const doLogin = deps.loginAccount ?? loginAccount;
+  const doClear = deps.clearAuthFailure ?? clearAuthFailure;
+  const log = deps.log ?? ((m: string) => console.log(m));
+  const error = deps.error ?? ((m: string) => console.error(m));
+
+  if (targets.length > 1) {
+    log(
+      `${targets.length} account(s) need login: ${targets
+        .map((t) => t.handle)
+        .join(", ")}`,
+    );
+  }
+
+  let failed = 0;
+  for (let i = 0; i < targets.length; i++) {
+    const target = targets[i];
+    const prefix = targets.length > 1 ? `[${i + 1}/${targets.length}] ` : "";
+    log(`${prefix}Logging in: ${target.handle} -> ${target.configDir}`);
+    try {
+      const result = await doLogin(target);
+      if (result.exitCode === 0) {
+        doClear(target.handle);
+      } else {
+        failed++;
+      }
+    } catch (err) {
+      error(`  ${target.handle}: ${(err as Error).message}`);
+      failed++;
+    }
+  }
+  return failed;
 }

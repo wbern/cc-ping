@@ -4,7 +4,8 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loginAccount, resolveLoginTargets } from "./login.js";
+import { loginAccount, resolveLoginTargets, runLogins } from "./login.js";
+import type { AccountConfig } from "./types.js";
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
 const mockSpawn = vi.mocked(spawn);
@@ -169,5 +170,142 @@ describe("loginAccount", () => {
       ["auth", "login"],
       expect.objectContaining({ cwd: tmpdir() }),
     );
+  });
+});
+
+describe("runLogins", () => {
+  function makeTargets(...handles: string[]): AccountConfig[] {
+    return handles.map((handle) => ({ handle, configDir: `/cfg/${handle}` }));
+  }
+
+  it("logs in each target sequentially in order", async () => {
+    const targets = makeTargets("alice", "bob", "carol");
+    const order: string[] = [];
+    const loginAccount = vi.fn(async (account: AccountConfig) => {
+      order.push(account.handle);
+      return {
+        handle: account.handle,
+        configDir: account.configDir,
+        exitCode: 0,
+      };
+    });
+
+    const failed = await runLogins(targets, {
+      loginAccount,
+      clearAuthFailure: vi.fn(),
+      log: vi.fn(),
+      error: vi.fn(),
+    });
+
+    expect(order).toEqual(["alice", "bob", "carol"]);
+    expect(failed).toBe(0);
+  });
+
+  it("prints the batch count message when more than one account needs login", async () => {
+    const targets = makeTargets("alice", "bob");
+    const log = vi.fn();
+    const loginAccount = vi.fn(async (account: AccountConfig) => ({
+      handle: account.handle,
+      configDir: account.configDir,
+      exitCode: 0,
+    }));
+
+    await runLogins(targets, {
+      loginAccount,
+      clearAuthFailure: vi.fn(),
+      log,
+      error: vi.fn(),
+    });
+
+    expect(log).toHaveBeenCalledWith("2 account(s) need login: alice, bob");
+    expect(log).toHaveBeenCalledWith("[1/2] Logging in: alice -> /cfg/alice");
+    expect(log).toHaveBeenCalledWith("[2/2] Logging in: bob -> /cfg/bob");
+  });
+
+  it("omits the batch message and step prefix for a single target", async () => {
+    const targets = makeTargets("alice");
+    const log = vi.fn();
+    const loginAccount = vi.fn(async (account: AccountConfig) => ({
+      handle: account.handle,
+      configDir: account.configDir,
+      exitCode: 0,
+    }));
+
+    await runLogins(targets, {
+      loginAccount,
+      clearAuthFailure: vi.fn(),
+      log,
+      error: vi.fn(),
+    });
+
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledWith("Logging in: alice -> /cfg/alice");
+  });
+
+  it("clears the auth failure only for accounts that exit 0", async () => {
+    const targets = makeTargets("alice", "bob");
+    const clearAuthFailure = vi.fn();
+    const loginAccount = vi.fn(async (account: AccountConfig) => ({
+      handle: account.handle,
+      configDir: account.configDir,
+      exitCode: account.handle === "alice" ? 0 : 3,
+    }));
+
+    const failed = await runLogins(targets, {
+      loginAccount,
+      clearAuthFailure,
+      log: vi.fn(),
+      error: vi.fn(),
+    });
+
+    expect(clearAuthFailure).toHaveBeenCalledTimes(1);
+    expect(clearAuthFailure).toHaveBeenCalledWith("alice");
+    expect(failed).toBe(1);
+  });
+
+  it("catches a spawn error, reports it, and counts it as a failure", async () => {
+    const targets = makeTargets("alice", "bob");
+    const error = vi.fn();
+    const clearAuthFailure = vi.fn();
+    const loginAccount = vi.fn(async (account: AccountConfig) => {
+      if (account.handle === "alice") throw new Error("spawn ENOENT");
+      return {
+        handle: account.handle,
+        configDir: account.configDir,
+        exitCode: 0,
+      };
+    });
+
+    const failed = await runLogins(targets, {
+      loginAccount,
+      clearAuthFailure,
+      log: vi.fn(),
+      error,
+    });
+
+    expect(error).toHaveBeenCalledWith("  alice: spawn ENOENT");
+    expect(clearAuthFailure).toHaveBeenCalledWith("bob");
+    expect(failed).toBe(1);
+  });
+
+  it("falls back to console sinks and the real loginAccount when no deps are injected", async () => {
+    const child = new EventEmitter() as ChildProcess;
+    mockSpawn.mockReturnValue(child);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // Drive the spawn-error path so the default console sinks and the real
+    // loginAccount are exercised without invoking the real clearAuthFailure
+    // (which would write to state.json).
+    const configDir = makeAuthedDir("alice", "alice@corp.com");
+    const promise = runLogins([{ handle: "alice", configDir }]);
+    child.emit("error", new Error("spawn ENOENT"));
+    const failed = await promise;
+
+    expect(failed).toBe(1);
+    expect(logSpy).toHaveBeenCalledWith(`Logging in: alice -> ${configDir}`);
+    expect(errorSpy).toHaveBeenCalledWith("  alice: spawn ENOENT");
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 });
