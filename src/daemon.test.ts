@@ -611,6 +611,59 @@ describe("daemon", () => {
       expect(deps.listAccounts).toHaveBeenCalledTimes(1);
     });
 
+    it("exits after consecutive iterations with a missing config dir", async () => {
+      let calls = 0;
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+        listAccounts: vi.fn().mockReturnValue([]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        // Safety net so a non-implementing loop can't hang the test.
+        shouldStop: vi.fn(() => {
+          calls++;
+          return calls > 10;
+        }),
+        log: vi.fn(),
+        configDirPresent: vi.fn(() => false),
+      };
+
+      const result = await daemonLoop(60000, {}, deps);
+
+      expect(result).toBe("stop");
+      expect(deps.runPing).not.toHaveBeenCalled();
+      expect(deps.log).toHaveBeenCalledWith(
+        expect.stringMatching(/config dir.*missing.*exiting/i),
+      );
+      // Exits on the 3rd consecutive miss, before shouldStop's safety trips.
+      expect(calls).toBeLessThan(10);
+    });
+
+    it("does not exit when missing-config iterations are not consecutive", async () => {
+      let stopChecks = 0;
+      let dirChecks = 0;
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({ failedHandles: [] }),
+        listAccounts: vi.fn().mockReturnValue([]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          stopChecks++;
+          return stopChecks > 20;
+        }),
+        log: vi.fn(),
+        // configDirPresent is called exactly once per iteration: alternate
+        // absent/present so there are never three consecutive misses.
+        configDirPresent: vi.fn(() => {
+          dirChecks++;
+          return dirChecks % 2 === 0;
+        }),
+      };
+
+      await daemonLoop(60000, {}, deps);
+
+      expect(deps.log).not.toHaveBeenCalledWith(
+        expect.stringMatching(/config dir.*missing.*exiting/i),
+      );
+    });
+
     it("passes options to runPing", async () => {
       let calls = 0;
       const deps = {

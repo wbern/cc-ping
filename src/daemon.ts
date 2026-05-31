@@ -362,7 +362,13 @@ interface DaemonLoopDeps {
   now?: () => Date;
   monotonicNow?: () => number;
   createWatchdog?: (onOvershoot: () => void) => Watchdog;
+  configDirPresent?: () => boolean;
 }
+
+// How many consecutive iterations with a vanished config dir before the daemon
+// gives up. A daemon whose config dir was deleted (e.g. a stray scoped to a temp
+// dir) would otherwise spin forever with nothing to do.
+const MAX_MISSING_CONFIG_ITERATIONS = 3;
 
 export async function daemonLoop(
   intervalMs: number,
@@ -371,6 +377,7 @@ export async function daemonLoop(
 ): Promise<"stop" | "upgrade"> {
   let wakeDelayMs: number | undefined;
   let postFailureSleepCap: number | undefined;
+  let missingConfigStreak = 0;
   while (!deps.shouldStop()) {
     // Cap is single-use: clear at the top of every iteration so it only
     // applies to the sleep right after the failed iteration that set it.
@@ -378,6 +385,21 @@ export async function daemonLoop(
     if (deps.hasUpgraded?.()) {
       deps.log("Binary upgraded, exiting for restart...");
       return "upgrade";
+    }
+
+    // A daemon whose config dir was deleted out from under it has nothing to
+    // ping and would otherwise spin forever. Bail after a few consecutive
+    // misses (consecutive, so a transient blip doesn't kill a healthy daemon).
+    if (deps.configDirPresent && !deps.configDirPresent()) {
+      missingConfigStreak++;
+      if (missingConfigStreak >= MAX_MISSING_CONFIG_ITERATIONS) {
+        deps.log(
+          `Config dir has been missing for ${missingConfigStreak} iterations, exiting.`,
+        );
+        return "stop";
+      }
+    } else {
+      missingConfigStreak = 0;
     }
 
     const wakeRequested = deps.consumeWake?.() === true;
@@ -1003,6 +1025,7 @@ export async function runDaemonWithDefaults(
         pollMs: SLEEP_POLL_MS,
       }),
     shouldStop: () => existsSync(stopPath),
+    configDirPresent: () => existsSync(resolveConfigDir()),
     consumeWake: () => {
       if (!existsSync(wakePath)) return false;
       try {
