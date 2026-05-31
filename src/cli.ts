@@ -13,6 +13,7 @@ import {
 } from "./config.js";
 import {
   getDaemonStatus,
+  listDaemonProcesses,
   readDaemonState,
   runDaemonWithDefaults,
   stopDaemon,
@@ -594,7 +595,11 @@ daemon
   .action(async (opts) => {
     const { getServiceStatus } = await import("./service.js");
     const svc = getServiceStatus();
-    const status = getDaemonStatus({ currentVersion: __VERSION__ });
+    const status = getDaemonStatus({
+      currentVersion: __VERSION__,
+      listDaemonProcesses,
+      configDirExists: existsSync,
+    });
     if (opts.json) {
       const serviceInfo = svc.installed
         ? {
@@ -667,6 +672,9 @@ daemon
       console.log(
         yellow("  Restart to pick up the new version: cc-ping daemon restart"),
       );
+    }
+    for (const warning of status.warnings ?? []) {
+      console.log(yellow(`  Warning: ${warning}`));
     }
     console.log("");
     printAccountTable(

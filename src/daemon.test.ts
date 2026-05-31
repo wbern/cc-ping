@@ -453,6 +453,118 @@ describe("daemon", () => {
     });
   });
 
+  describe("getDaemonStatus health warnings", () => {
+    it("warns when the running daemon process lacks --notify", () => {
+      writeDaemonState({
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        intervalMs: 300000,
+        configDir,
+      });
+
+      const status = getDaemonStatus({
+        isDaemonProcess: () => true,
+        listDaemonProcesses: () => [
+          {
+            pid: process.pid,
+            args: [
+              "daemon",
+              "_run",
+              "--interval-ms",
+              "300000",
+              "--auto-update",
+            ],
+          },
+        ],
+      });
+      expect(status.warnings).toEqual([expect.stringMatching(/--notify/)]);
+    });
+
+    it("warns when the running daemon process lacks --auto-update", () => {
+      writeDaemonState({
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        intervalMs: 300000,
+        configDir,
+      });
+
+      const status = getDaemonStatus({
+        isDaemonProcess: () => true,
+        listDaemonProcesses: () => [
+          {
+            pid: process.pid,
+            args: ["daemon", "_run", "--interval-ms", "300000", "--notify"],
+          },
+        ],
+      });
+      expect(status.warnings).toEqual([expect.stringMatching(/--auto-update/)]);
+    });
+
+    it("warns when more than one daemon process is running", () => {
+      writeDaemonState({
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        intervalMs: 300000,
+        configDir,
+      });
+
+      const status = getDaemonStatus({
+        isDaemonProcess: () => true,
+        listDaemonProcesses: () => [
+          {
+            pid: process.pid,
+            args: ["daemon", "_run", "--notify", "--auto-update"],
+          },
+          {
+            pid: process.pid + 1,
+            args: ["daemon", "_run", "--notify", "--auto-update"],
+          },
+        ],
+      });
+      expect(status.warnings).toEqual([
+        expect.stringMatching(/2 daemon processes/),
+      ]);
+      expect(status.warnings?.[0]).toContain(String(process.pid + 1));
+    });
+
+    it("warns when the daemon's config dir no longer exists", () => {
+      writeDaemonState({
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        intervalMs: 300000,
+        configDir,
+      });
+
+      const status = getDaemonStatus({
+        isDaemonProcess: () => true,
+        configDirExists: () => false,
+      });
+      expect(status.warnings).toEqual([expect.stringMatching(/config dir/)]);
+      expect(status.warnings?.[0]).toContain(configDir);
+    });
+
+    it("emits no warnings for a healthy daemon", () => {
+      writeDaemonState({
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        intervalMs: 300000,
+        configDir,
+      });
+
+      const status = getDaemonStatus({
+        isDaemonProcess: () => true,
+        configDirExists: () => true,
+        listDaemonProcesses: () => [
+          {
+            pid: process.pid,
+            args: ["daemon", "_run", "--notify", "--auto-update"],
+          },
+        ],
+      });
+      expect(status.warnings).toBeUndefined();
+    });
+  });
+
   describe("hasVersionChanged", () => {
     it("returns true when installed version differs from running version", () => {
       const result = hasVersionChanged("1.0.0", () => "2.0.0");

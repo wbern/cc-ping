@@ -145,6 +145,35 @@ function isDaemonProcess(pid: number): boolean {
 }
 /* c8 ignore stop */
 
+/* c8 ignore start -- subprocess call, tested via DI in getDaemonStatus */
+export function listDaemonProcesses(): { pid: number; args: string[] }[] {
+  try {
+    const output = execFileSync("ps", ["-ax", "-o", "pid=,command="], {
+      encoding: "utf-8",
+      timeout: 5000,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const procs: { pid: number; args: string[] }[] = [];
+    for (const line of output.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const tokens = trimmed.split(/\s+/);
+      const pid = Number(tokens[0]);
+      if (!Number.isInteger(pid)) continue;
+      const command = tokens.slice(1);
+      const isDaemon =
+        command.includes("daemon") &&
+        command.includes("_run") &&
+        command.some((t) => t.includes("cc-ping") || t.includes("cli.js"));
+      if (isDaemon) procs.push({ pid, args: command });
+    }
+    return procs;
+  } catch {
+    return [];
+  }
+}
+/* c8 ignore stop */
+
 // --- Parsing ---
 
 export function parseInterval(value: string | undefined): number {
@@ -170,11 +199,19 @@ interface DaemonStatusResult {
   nextPingIn?: string;
   versionMismatch?: boolean;
   daemonVersion?: string;
+  warnings?: string[];
+}
+
+interface DaemonProcessInfo {
+  pid: number;
+  args: string[];
 }
 
 export function getDaemonStatus(deps?: {
   isDaemonProcess?: (pid: number) => boolean;
   currentVersion?: string;
+  listDaemonProcesses?: () => DaemonProcessInfo[];
+  configDirExists?: (path: string) => boolean;
 }): DaemonStatusResult {
   /* c8 ignore next -- real isDaemonProcess uses execFileSync, tested via DI */
   const _isDaemonProcess = deps?.isDaemonProcess ?? isDaemonProcess;
@@ -203,6 +240,31 @@ export function getDaemonStatus(deps?: {
       ? state.version !== currentVersion
       : false;
 
+  const warnings: string[] = [];
+  const processes = deps?.listDaemonProcesses?.();
+  if (processes) {
+    const self = processes.find((p) => p.pid === state.pid);
+    if (self && !self.args.includes("--notify")) {
+      warnings.push(
+        "running without --notify — desktop failure notifications are off",
+      );
+    }
+    if (self && !self.args.includes("--auto-update")) {
+      warnings.push(
+        "running without --auto-update — won't self-restart after an upgrade",
+      );
+    }
+    if (processes.length > 1) {
+      const pids = processes.map((p) => p.pid).join(", ");
+      warnings.push(
+        `${processes.length} daemon processes are running (pids: ${pids}) — only one should be`,
+      );
+    }
+  }
+  if (deps?.configDirExists?.(state.configDir) === false) {
+    warnings.push(`config dir is missing: ${state.configDir}`);
+  }
+
   return {
     running: true,
     pid: state.pid,
@@ -212,6 +274,7 @@ export function getDaemonStatus(deps?: {
     nextPingIn,
     versionMismatch,
     daemonVersion: state.version,
+    warnings: warnings.length > 0 ? warnings : undefined,
   };
 }
 
