@@ -195,10 +195,15 @@ Generate shell completion scripts for `bash`, `zsh`, or `fish`.
 
 Send a test notification to verify notifications work on your platform. Fires a desktop notification, and — if a remote URL is configured — a remote (phone) push too.
 
-### `cc-ping notify set-url <url>`
+### `cc-ping notify set [topic]`
 
-Configure remote phone notifications via an [ntfy.sh](https://ntfy.sh)-compatible HTTPS push URL. The topic in the URL is the credential, so treat it as a secret. See [Remote notifications](#remote-notifications).
+Set up remote phone notifications via [ntfy.sh](https://ntfy.sh) (or a compatible server). Omit the topic to have a secure, hard-to-guess one generated for you; the command then prints the next steps (install the app, subscribe, test). The topic is the credential, so treat it as a secret. See [Remote notifications](#remote-notifications).
 
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--server <url>` | `https://ntfy.sh` | ntfy-compatible server base URL (for self-hosting) |
+
+- `cc-ping notify set-url <url>` — advanced: set the full HTTPS push URL directly
 - `cc-ping notify show` — show whether remote notifications are configured (URL is masked)
 - `cc-ping notify clear-url` — disable remote notifications
 
@@ -307,13 +312,13 @@ Use `cc-ping moo` to verify notifications work on your system.
 For alerts that reach your phone when you're away from your desk, cc-ping can POST to an [ntfy.sh](https://ntfy.sh)-compatible push endpoint (genuine iOS + Android push, no signup, self-hostable). This is especially useful for a headless daemon: it surfaces the high-value events — a ping **failure** or an account that needs re-login — even with no desktop attached.
 
 ```bash
-cc-ping notify set-url https://ntfy.sh/your-secret-topic   # pick a hard-to-guess topic
-cc-ping moo                                                # send a test push
+cc-ping notify set        # generates a secure topic and prints the setup steps
+cc-ping moo               # send a test push once you've subscribed in the app
 ```
 
-Then subscribe to the same topic in the ntfy mobile app. Notes:
+`notify set` walks you through it: it picks a hard-to-guess topic (or use your own with `cc-ping notify set my-topic`), saves it, and tells you to install the ntfy app and subscribe to that topic. Self-hosting? Point at your own server with `--server https://ntfy.example.com`. Notes:
 
-- The URL must be **HTTPS**, and the topic string **is the credential** — anyone who knows it can read your alerts, so keep it private. cc-ping never logs or prints the URL.
+- The URL must be **HTTPS**, and the topic string **is the credential** — anyone who knows it can read your alerts, so keep it private. cc-ping masks the URL in `notify show` and never logs it.
 - Remote notifications fire independently of `--notify`, so the daemon pushes to your phone whether or not desktop notifications are enabled.
 - Delivery is best-effort with a short timeout and a couple of retries on transient errors; a failed push is logged and never affects pinging.
 - Disable any time with `cc-ping notify clear-url`.

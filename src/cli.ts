@@ -35,6 +35,11 @@ import { findDuplicates } from "./identity.js";
 import { resolveLoginTargets, runLogins } from "./login.js";
 import { getNextReset } from "./next-reset.js";
 import { sendNotification } from "./notify.js";
+import {
+  buildNotifyUrl,
+  DEFAULT_NTFY_SERVER,
+  generateTopic,
+} from "./notify-setup.js";
 import { setConfigDir } from "./paths.js";
 import { sendRemoteNotification } from "./remote-notify.js";
 import { runPing } from "./run-ping.js";
@@ -504,6 +509,9 @@ program
       });
       if (remoteOk) {
         console.log("Remote notification sent");
+        console.log(
+          "  (If your phone didn't buzz, subscribe to the topic in the ntfy app.)",
+        );
       } else {
         console.error("Remote notification failed (check the configured URL)");
         process.exit(1);
@@ -516,9 +524,45 @@ const notify = program
   .description("Manage remote phone notifications (ntfy.sh-compatible push)");
 
 notify
+  .command("set")
+  .description("Set up remote phone notifications (generates a secure topic)")
+  .argument(
+    "[topic]",
+    "ntfy topic to use (default: a generated, hard-to-guess one). The topic is a secret — anyone who knows it can read your alerts.",
+  )
+  .option(
+    "--server <url>",
+    "ntfy-compatible server base URL (default: https://ntfy.sh)",
+  )
+  .action((topic: string | undefined, opts: { server?: string }) => {
+    const server = opts.server ?? DEFAULT_NTFY_SERVER;
+    const chosenTopic = topic ?? generateTopic();
+    let url: string;
+    try {
+      url = buildNotifyUrl(chosenTopic, server);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exit(1);
+    }
+    setRemoteNotifyUrl(url);
+    console.log("Remote notifications configured.\n");
+    console.log(`  Topic:  ${chosenTopic}`);
+    if (server !== DEFAULT_NTFY_SERVER) console.log(`  Server: ${server}`);
+    console.log("\nNext steps:");
+    console.log(
+      "  1. Install the ntfy app (App Store / Google Play / F-Droid)",
+    );
+    const where = server !== DEFAULT_NTFY_SERVER ? ` (server: ${server})` : "";
+    console.log(`  2. In the app, subscribe to the topic above${where}`);
+    console.log(
+      "  3. Run `cc-ping moo` to send a test push — your phone should buzz",
+    );
+  });
+
+notify
   .command("set-url")
   .description(
-    "Set the HTTPS push URL (the topic is a secret — keep it private)",
+    "Set the full HTTPS push URL directly (advanced; prefer `notify set`)",
   )
   .argument(
     "<url>",
@@ -530,7 +574,10 @@ notify
       process.exit(1);
     }
     setRemoteNotifyUrl(url);
-    console.log("Remote notification URL saved. Test it with: cc-ping moo");
+    console.log("Remote notification URL saved.");
+    console.log(
+      "Subscribe to this topic in the ntfy app, then test it: cc-ping moo",
+    );
   });
 
 notify
