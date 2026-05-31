@@ -879,4 +879,139 @@ describe("runPing", () => {
     expect(exitCode).toBe(1);
     expect(sendRemote).toHaveBeenCalledTimes(1);
   });
+
+  it("fires a command notification on failure with high priority", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: false, durationMs: 100, error: "timed out" },
+    ]);
+    const sendCommand = vi.fn().mockResolvedValue(true);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      notifyCommand: ["notify-send", "-u", "critical"],
+      _sendCommand: sendCommand,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(sendCommand).toHaveBeenCalledWith(
+      ["notify-send", "-u", "critical"],
+      {
+        title: "cc-ping: ping failure",
+        body: "1 account(s) failed: alice (timed out)",
+        event: "failure",
+        priority: "high",
+      },
+      expect.objectContaining({ log: expect.any(Function) }),
+    );
+  });
+
+  it("fires a command notification on a new window with default priority", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: true, durationMs: 100 },
+    ]);
+    const sendCommand = vi.fn().mockResolvedValue(true);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      notifyCommand: ["alert"],
+      _sendCommand: sendCommand,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(sendCommand).toHaveBeenCalledWith(
+      ["alert"],
+      {
+        title: "cc-ping: new window",
+        body: "1 account(s) ready: alice",
+        event: "new-window",
+        priority: "default",
+      },
+      expect.objectContaining({ log: expect.any(Function) }),
+    );
+  });
+
+  it("logs to stderr when a command notification returns false", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: false, durationMs: 100, error: "timed out" },
+    ]);
+    const sendCommand = vi.fn().mockResolvedValue(false);
+    const stderr = vi.fn();
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      notifyCommand: ["alert"],
+      _sendCommand: sendCommand,
+      stdout: vi.fn(),
+      stderr,
+    });
+
+    expect(stderr).toHaveBeenCalledWith(
+      "Command notification failed (failure)",
+    );
+  });
+
+  it("logs to stderr when a command notification throws", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: false, durationMs: 100, error: "timed out" },
+    ]);
+    const sendCommand = vi.fn().mockRejectedValue(new Error("boom"));
+    const stderr = vi.fn();
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      notifyCommand: ["alert"],
+      _sendCommand: sendCommand,
+      stdout: vi.fn(),
+      stderr,
+    });
+
+    expect(stderr).toHaveBeenCalledWith("Command notification error (failure)");
+  });
+
+  it("does not fire a command notification when none is configured", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: false, durationMs: 100, error: "timed out" },
+    ]);
+    const sendCommand = vi.fn();
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      _sendCommand: sendCommand,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(sendCommand).not.toHaveBeenCalled();
+  });
+
+  it("does not fire a command notification for an empty command array", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: false, durationMs: 100, error: "timed out" },
+    ]);
+    const sendCommand = vi.fn();
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      notifyCommand: [],
+      _sendCommand: sendCommand,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(sendCommand).not.toHaveBeenCalled();
+  });
 });

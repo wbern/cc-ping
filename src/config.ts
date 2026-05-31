@@ -76,6 +76,24 @@ export function clearRemoteNotify(): boolean {
   return true;
 }
 
+export function getNotifyCommand(): string[] | undefined {
+  return loadConfig().notifyCommand;
+}
+
+export function setNotifyCommand(command: string[]): void {
+  const config = loadConfig();
+  config.notifyCommand = command;
+  saveConfig(config);
+}
+
+export function clearNotifyCommand(): boolean {
+  const config = loadConfig();
+  if (!config.notifyCommand) return false;
+  config.notifyCommand = undefined;
+  saveConfig(config);
+  return true;
+}
+
 export function resetSchedule(
   handle?: string,
   now: Date = new Date(),

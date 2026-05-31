@@ -1,6 +1,7 @@
 import { ringBell } from "./bell.js";
 import { green, red } from "./color.js";
-import { getRemoteNotify } from "./config.js";
+import { runNotifyCommand } from "./command-notify.js";
+import { getNotifyCommand, getRemoteNotify } from "./config.js";
 import { appendHistoryEntry } from "./history.js";
 import { createLogger } from "./logger.js";
 import { sendNotification } from "./notify.js";
@@ -36,6 +37,8 @@ interface RunPingOptions {
   remoteNotify?: RemoteNotifyConfig;
   _sendRemote?: typeof sendRemoteNotification;
   _remoteDeadlineMs?: number;
+  notifyCommand?: string[];
+  _sendCommand?: typeof runNotifyCommand;
 }
 
 // A one-shot `cc-ping ping` calls process.exit right after runPing returns, so
@@ -151,7 +154,11 @@ export async function runPing(
   // is logged and never fails the ping.
   const remoteNotify = options.remoteNotify ?? getRemoteNotify();
   const sendRemote = options._sendRemote ?? sendRemoteNotification;
-  const remotePromises: Promise<void>[] = [];
+  const notifyCommand = options.notifyCommand ?? getNotifyCommand();
+  const sendCommand = options._sendCommand ?? runNotifyCommand;
+  // Both the remote push and the user command are best-effort and awaited
+  // together under one deadline so a one-shot `ping` doesn't cut them off.
+  const externalPromises: Promise<void>[] = [];
   const fireRemote = (
     event: RemoteNotifyEvent,
     title: string,
@@ -160,7 +167,7 @@ export async function runPing(
   ) => {
     if (!remoteNotify?.url) return;
     if (remoteNotify.events && !remoteNotify.events.includes(event)) return;
-    remotePromises.push(
+    externalPromises.push(
       sendRemote(
         remoteNotify.url,
         { title, body, priority },
@@ -170,6 +177,27 @@ export async function runPing(
           if (!ok) logger.error(`Remote notification failed (${event})`);
         })
         .catch(() => logger.error(`Remote notification error (${event})`)),
+    );
+  };
+  const fireCommand = (
+    event: RemoteNotifyEvent,
+    title: string,
+    body: string,
+    priority: string,
+  ) => {
+    if (!notifyCommand || notifyCommand.length === 0) return;
+    externalPromises.push(
+      sendCommand(
+        notifyCommand,
+        { title, body, event, priority },
+        {
+          log: logger.error,
+        },
+      )
+        .then((ok) => {
+          if (!ok) logger.error(`Command notification failed (${event})`);
+        })
+        .catch(() => logger.error(`Command notification error (${event})`)),
     );
   };
 
@@ -182,6 +210,7 @@ export async function runPing(
       await sendNotification("cc-ping: ping failure", body);
     }
     fireRemote("failure", "cc-ping: ping failure", body, "high");
+    fireCommand("failure", "cc-ping: ping failure", body, "high");
   }
 
   const newWindows = results
@@ -196,10 +225,11 @@ export async function runPing(
       await sendNotification("cc-ping: new window", body, { sound: true });
     }
     fireRemote("new-window", "cc-ping: new window", body, "default");
+    fireCommand("new-window", "cc-ping: new window", body, "default");
   }
 
   await settleWithDeadline(
-    remotePromises,
+    externalPromises,
     options._remoteDeadlineMs ?? REMOTE_BATCH_DEADLINE_MS,
   );
 

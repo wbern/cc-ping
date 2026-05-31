@@ -28,6 +28,9 @@ const {
   getRemoteNotify,
   setRemoteNotifyUrl,
   clearRemoteNotify,
+  getNotifyCommand,
+  setNotifyCommand,
+  clearNotifyCommand,
 } = await import("./config.js");
 const { recordPing, loadState } = await import("./state.js");
 
@@ -212,5 +215,37 @@ describe("config", () => {
 
   it("returns false when clearing an unset remote-notify config", () => {
     expect(clearRemoteNotify()).toBe(false);
+  });
+
+  it("returns undefined notify command when unset", () => {
+    expect(getNotifyCommand()).toBeUndefined();
+  });
+
+  it("sets and reads the notify command", () => {
+    setNotifyCommand(["notify-send", "-u", "critical"]);
+    expect(getNotifyCommand()).toEqual(["notify-send", "-u", "critical"]);
+  });
+
+  it("preserves accounts when setting the notify command", () => {
+    addAccount("acct1", "/path1");
+    setNotifyCommand(["alert"]);
+    expect(listAccounts()).toHaveLength(1);
+    expect(getNotifyCommand()).toEqual(["alert"]);
+  });
+
+  it("overwrites an existing notify command", () => {
+    setNotifyCommand(["old"]);
+    setNotifyCommand(["new", "arg"]);
+    expect(getNotifyCommand()).toEqual(["new", "arg"]);
+  });
+
+  it("clears the notify command", () => {
+    setNotifyCommand(["alert"]);
+    expect(clearNotifyCommand()).toBe(true);
+    expect(getNotifyCommand()).toBeUndefined();
+  });
+
+  it("returns false when clearing an unset notify command", () => {
+    expect(clearNotifyCommand()).toBe(false);
   });
 });

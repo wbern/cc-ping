@@ -3,15 +3,19 @@ import { basename, resolve } from "node:path";
 import { Command } from "commander";
 import { checkAccounts } from "./check.js";
 import { yellow } from "./color.js";
+import { runNotifyCommand } from "./command-notify.js";
 import { generateCompletion } from "./completions.js";
 import {
   addAccount,
+  clearNotifyCommand,
   clearRemoteNotify,
+  getNotifyCommand,
   getRemoteNotify,
   listAccounts,
   removeAccount,
   resetSchedule,
   saveConfig,
+  setNotifyCommand,
   setRemoteNotifyUrl,
 } from "./config.js";
 import {
@@ -517,6 +521,23 @@ program
         process.exit(1);
       }
     }
+    const command = getNotifyCommand();
+    if (command && command.length > 0) {
+      const commandOk = await runNotifyCommand(command, {
+        title: "cc-ping",
+        body: "Moo! Command notifications are working.",
+        event: "new-window",
+        priority: "default",
+      });
+      if (commandOk) {
+        console.log("Command notification sent");
+      } else {
+        console.error(
+          "Command notification failed (check the configured command)",
+        );
+        process.exit(1);
+      }
+    }
   });
 
 const notify = program
@@ -592,18 +613,54 @@ notify
   });
 
 notify
+  .command("set-command")
+  .description(
+    "Run a custom command on notifications (argv form, no shell). The command receives the alert via CC_PING_TITLE/BODY/EVENT/PRIORITY env vars. Use `--` before commands that take dashed flags.",
+  )
+  .argument(
+    "<command...>",
+    "Command and arguments, e.g. `-- notify-send -u critical` or `apprise pover://...`",
+  )
+  .action((command: string[]) => {
+    setNotifyCommand(command);
+    console.log("Notification command saved:");
+    console.log(`  ${command.join(" ")}`);
+    console.log(
+      "\nIt runs with CC_PING_TITLE, CC_PING_BODY, CC_PING_EVENT, and CC_PING_PRIORITY in the environment.",
+    );
+    console.log("Test it: cc-ping moo");
+  });
+
+notify
+  .command("clear-command")
+  .description("Remove the configured notification command")
+  .action(() => {
+    if (clearNotifyCommand()) {
+      console.log("Notification command removed");
+    } else {
+      console.log("No notification command was configured");
+    }
+  });
+
+notify
   .command("show")
   .description(
-    "Show whether remote notifications are configured (URL is masked)",
+    "Show whether remote and command notifications are configured (URL is masked)",
   )
   .action(() => {
     const remote = getRemoteNotify();
     if (!remote?.url) {
       console.log("Remote notifications: not configured");
-      return;
+    } else {
+      const events = remote.events ? remote.events.join(", ") : "all";
+      console.log(`Remote notifications: configured (events: ${events})`);
     }
-    const events = remote.events ? remote.events.join(", ") : "all";
-    console.log(`Remote notifications: configured (events: ${events})`);
+    const command = getNotifyCommand();
+    if (command && command.length > 0) {
+      console.log(`Command notification: ${command.join(" ")}`);
+    } else {
+      console.log("Command notification: not configured");
+    }
   });
 
 const daemon = program

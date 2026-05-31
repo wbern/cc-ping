@@ -51,6 +51,7 @@ export interface RemoteNotifyConfig {
 export interface Config {
   accounts: AccountConfig[];
   remoteNotify?: RemoteNotifyConfig;
+  notifyCommand?: string[];
 }
 
 export interface AccountIdentity {
