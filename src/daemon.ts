@@ -145,15 +145,20 @@ function isDaemonProcess(pid: number): boolean {
 }
 /* c8 ignore stop */
 
+interface DaemonProcessInfo {
+  pid: number;
+  args: string[];
+}
+
 /* c8 ignore start -- subprocess call, tested via DI in getDaemonStatus */
-export function listDaemonProcesses(): { pid: number; args: string[] }[] {
+export function listDaemonProcesses(): DaemonProcessInfo[] {
   try {
     const output = execFileSync("ps", ["-ax", "-o", "pid=,command="], {
       encoding: "utf-8",
       timeout: 5000,
       stdio: ["ignore", "pipe", "ignore"],
     });
-    const procs: { pid: number; args: string[] }[] = [];
+    const procs: DaemonProcessInfo[] = [];
     for (const line of output.split("\n")) {
       const trimmed = line.trim();
       if (!trimmed) continue;
@@ -200,11 +205,6 @@ interface DaemonStatusResult {
   versionMismatch?: boolean;
   daemonVersion?: string;
   warnings?: string[];
-}
-
-interface DaemonProcessInfo {
-  pid: number;
-  args: string[];
 }
 
 export function getDaemonStatus(deps?: {
@@ -604,7 +604,7 @@ interface StartDaemonDeps {
   openSync: (path: string, flags: string) => number;
   closeSync: (fd: number) => void;
   rotateLog?: (logPath: string) => void;
-  listDaemonProcesses?: () => { pid: number; args: string[] }[];
+  listDaemonProcesses?: () => DaemonProcessInfo[];
 }
 
 export function startDaemon(
