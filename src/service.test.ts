@@ -8,6 +8,8 @@ import {
   resolveExecutable,
   type ServiceDeps,
   servicePath,
+  startOrRestartDaemon,
+  startService,
   uninstallService,
 } from "./service.js";
 
@@ -26,6 +28,145 @@ function makeDeps(overrides?: Partial<ServiceDeps>): ServiceDeps {
 }
 
 describe("service", () => {
+  describe("startService", () => {
+    it("reloads the launchd service (unload then load) on darwin", () => {
+      const execSync = vi.fn().mockReturnValue("");
+      const result = startService(makeDeps({ platform: "darwin", execSync }));
+      expect(result.success).toBe(true);
+      expect(execSync.mock.calls.map((c) => c[0])).toEqual([
+        'launchctl unload "/Users/test/Library/LaunchAgents/com.cc-ping.daemon.plist"',
+        'launchctl load "/Users/test/Library/LaunchAgents/com.cc-ping.daemon.plist"',
+      ]);
+    });
+
+    it("loads even when the job was not previously registered (unload errors)", () => {
+      const execSync = vi.fn((cmd: string) => {
+        if (cmd.includes("unload")) throw new Error("not loaded");
+        return "";
+      });
+      const result = startService(makeDeps({ platform: "darwin", execSync }));
+      expect(result.success).toBe(true);
+      expect(execSync.mock.calls.some((c) => c[0].includes("load"))).toBe(true);
+    });
+
+    it("restarts the systemd unit on linux", () => {
+      const execSync = vi.fn().mockReturnValue("");
+      const result = startService(makeDeps({ platform: "linux", execSync }));
+      expect(result.success).toBe(true);
+      expect(execSync).toHaveBeenCalledWith(
+        "systemctl --user restart cc-ping-daemon",
+      );
+    });
+
+    it("returns an error when the service command fails", () => {
+      const execSync = vi.fn(() => {
+        throw new Error("load: boom");
+      });
+      const result = startService(makeDeps({ platform: "linux", execSync }));
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Failed to start service");
+    });
+
+    it("returns an error on an unsupported platform", () => {
+      const result = startService(makeDeps({ platform: "win32" }));
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Unsupported platform");
+    });
+  });
+
+  describe("startOrRestartDaemon", () => {
+    it("delegates to the system service when one is installed, never spawning", async () => {
+      const startDaemon = vi.fn();
+      const execSync = vi.fn().mockReturnValue("");
+      const result = await startOrRestartDaemon(
+        "start",
+        {},
+        {
+          ...makeDeps({ platform: "darwin", existsSync: () => true, execSync }),
+          startDaemon,
+        },
+      );
+      expect(result).toEqual({ success: true, managed: true });
+      expect(startDaemon).not.toHaveBeenCalled();
+      expect(execSync.mock.calls.some((c) => c[0].includes("load"))).toBe(true);
+    });
+
+    it("spawns an unmanaged daemon when no service is installed", async () => {
+      const startDaemon = vi.fn().mockReturnValue({ success: true, pid: 4242 });
+      const result = await startOrRestartDaemon(
+        "start",
+        { notify: true },
+        {
+          ...makeDeps({ existsSync: () => false }),
+          startDaemon,
+        },
+      );
+      expect(result).toEqual({ success: true, managed: false, pid: 4242 });
+      expect(startDaemon).toHaveBeenCalledWith({ notify: true });
+    });
+
+    it("stops the old unmanaged daemon before starting on restart", async () => {
+      const order: string[] = [];
+      const stopDaemon = vi.fn(async () => {
+        order.push("stop");
+        return { success: true };
+      });
+      const startDaemon = vi.fn(() => {
+        order.push("start");
+        return { success: true, pid: 7 };
+      });
+      const result = await startOrRestartDaemon(
+        "restart",
+        {},
+        {
+          ...makeDeps({ existsSync: () => false, stopDaemon }),
+          startDaemon,
+        },
+      );
+      expect(order).toEqual(["stop", "start"]);
+      expect(result.managed).toBe(false);
+    });
+
+    it("propagates a service start failure", async () => {
+      const execSync = vi.fn(() => {
+        throw new Error("boom");
+      });
+      const startDaemon = vi.fn();
+      const result = await startOrRestartDaemon(
+        "start",
+        {},
+        {
+          ...makeDeps({ platform: "linux", existsSync: () => true, execSync }),
+          startDaemon,
+        },
+      );
+      expect(result.success).toBe(false);
+      expect(result.managed).toBe(true);
+      expect(result.error).toContain("Failed to start service");
+    });
+
+    it("propagates a spawn failure for an unmanaged daemon", async () => {
+      const startDaemon = vi.fn().mockReturnValue({
+        success: false,
+        error: "Daemon is already running",
+      });
+      const result = await startOrRestartDaemon(
+        "start",
+        {},
+        {
+          ...makeDeps({ existsSync: () => false }),
+          startDaemon,
+        },
+      );
+      expect(result).toEqual({
+        success: false,
+        managed: false,
+        pid: undefined,
+        error: "Daemon is already running",
+      });
+    });
+  });
+
   describe("resolveExecutable", () => {
     it("returns cc-ping path when which succeeds", () => {
       const result = resolveExecutable({

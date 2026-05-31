@@ -344,6 +344,107 @@ export async function uninstallService(
   return { success: true, servicePath: path };
 }
 
+// (Re)start the installed system service so it runs from its own definition
+// (launchd plist / systemd unit) — preserving --notify and --auto-update, which
+// a bare `daemon start` cannot. On darwin we unload then load (load alone errors
+// if the job is already registered); on linux `systemctl restart` is idempotent.
+export function startService(deps?: Partial<ServiceDeps>): {
+  success: boolean;
+  error?: string;
+} {
+  /* c8 ignore next 5 -- production defaults */
+  const _platform = deps?.platform ?? process.platform;
+  const _homedir = deps?.homedir ?? nodeHomedir;
+  const _execSync =
+    deps?.execSync ??
+    ((cmd: string) => nodeExecSync(cmd, { encoding: "utf-8" }));
+
+  let path: string;
+  try {
+    path = servicePath(_platform, _homedir());
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+
+  try {
+    if (_platform === "darwin") {
+      try {
+        _execSync(`launchctl unload "${path}"`);
+      } catch {
+        // Not loaded yet — fine, the load below registers it.
+      }
+      _execSync(`launchctl load "${path}"`);
+    } else {
+      _execSync(`systemctl --user restart ${SYSTEMD_SERVICE}`);
+    }
+  } catch (err) {
+    return {
+      success: false,
+      error: `Failed to start service: ${(err as Error).message}`,
+    };
+  }
+
+  return { success: true };
+}
+
+interface DaemonStartOptions {
+  interval?: string;
+  quiet?: boolean;
+  bell?: boolean;
+  notify?: boolean;
+  smartSchedule?: boolean;
+  version?: string;
+}
+
+interface StartOrRestartDeps extends Partial<ServiceDeps> {
+  startDaemon?: (options: DaemonStartOptions) => {
+    success: boolean;
+    pid?: number;
+    error?: string;
+  };
+}
+
+// Bring the daemon up the right way. If a system service is installed, drive it
+// through the service manager (startService) so it runs from the plist/unit with
+// --notify and --auto-update; a bare spawn would silently drop those. Only when
+// no service is installed do we spawn an unmanaged process. For "restart" of an
+// unmanaged daemon we stop the old one first. Returns whether the result is
+// service-managed so callers can report it.
+export async function startOrRestartDaemon(
+  mode: "start" | "restart",
+  options: DaemonStartOptions,
+  deps?: StartOrRestartDeps,
+): Promise<{
+  success: boolean;
+  managed: boolean;
+  pid?: number;
+  error?: string;
+}> {
+  const status = getServiceStatus(deps);
+  if (status.installed) {
+    const result = startService(deps);
+    return { success: result.success, managed: true, error: result.error };
+  }
+
+  if (mode === "restart") {
+    /* c8 ignore next 2 -- production default */
+    const _stopDaemon =
+      deps?.stopDaemon ?? (await import("./daemon.js")).stopDaemon;
+    await _stopDaemon().catch(() => {});
+  }
+
+  /* c8 ignore next 2 -- production default */
+  const _startDaemon =
+    deps?.startDaemon ?? (await import("./daemon.js")).startDaemon;
+  const result = _startDaemon(options);
+  return {
+    success: result.success,
+    managed: false,
+    pid: result.pid,
+    error: result.error,
+  };
+}
+
 export function getServiceStatus(deps?: Partial<ServiceDeps>): ServiceStatus {
   /* c8 ignore next 3 -- production defaults */
   const _platform = deps?.platform ?? process.platform;

@@ -15,7 +15,6 @@ import {
   getDaemonStatus,
   readDaemonState,
   runDaemonWithDefaults,
-  startDaemon,
   stopDaemon,
   wakeDaemon,
   writeDaemonState,
@@ -517,7 +516,8 @@ daemon
     if (opts.smartSchedule !== undefined) {
       smartSchedule = parseSmartSchedule(opts.smartSchedule);
     }
-    const result = startDaemon({
+    const { startOrRestartDaemon } = await import("./service.js");
+    const result = await startOrRestartDaemon("start", {
       interval: opts.interval,
       quiet: opts.quiet,
       bell: opts.bell,
@@ -529,10 +529,10 @@ daemon
       console.error(result.error);
       process.exit(1);
     }
-    console.log(`Daemon started (PID: ${result.pid})`);
-    const { getServiceStatus } = await import("./service.js");
-    const svc = getServiceStatus();
-    if (!svc.installed) {
+    if (result.managed) {
+      console.log("Started the installed system service.");
+    } else {
+      console.log(`Daemon started (PID: ${result.pid})`);
       console.log(
         "Hint: won't survive a reboot. Use `cc-ping daemon install` for a persistent service.",
       );
@@ -562,6 +562,27 @@ daemon
       console.log(
         "Note: system service is installed. The daemon may restart. Use `cc-ping daemon uninstall` to fully remove.",
       );
+    }
+  });
+
+daemon
+  .command("restart")
+  .description(
+    "Restart the daemon, picking up a new version (uses the system service if installed)",
+  )
+  .action(async () => {
+    const { startOrRestartDaemon } = await import("./service.js");
+    const result = await startOrRestartDaemon("restart", {
+      version: __VERSION__,
+    });
+    if (!result.success) {
+      console.error(result.error);
+      process.exit(1);
+    }
+    if (result.managed) {
+      console.log("Restarted the installed system service.");
+    } else {
+      console.log(`Daemon restarted (PID: ${result.pid})`);
     }
   });
 
@@ -644,9 +665,7 @@ daemon
         ),
       );
       console.log(
-        yellow(
-          "  Restart to pick up the new version: cc-ping daemon stop && cc-ping daemon start",
-        ),
+        yellow("  Restart to pick up the new version: cc-ping daemon restart"),
       );
     }
     console.log("");
