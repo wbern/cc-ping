@@ -1643,6 +1643,7 @@ describe("daemon", () => {
         { interval: "abc" },
         {
           getDaemonStatus: () => ({ running: false }),
+          listDaemonProcesses: () => [],
         },
       );
 
@@ -1660,6 +1661,7 @@ describe("daemon", () => {
         { interval: "60" },
         {
           getDaemonStatus: () => ({ running: false }),
+          listDaemonProcesses: () => [],
           spawn: mockSpawn as never,
           writeDaemonState: mockWriteState,
           openSync: vi.fn().mockReturnValue(3),
@@ -1687,6 +1689,7 @@ describe("daemon", () => {
         { interval: "5", quiet: true, bell: true, notify: true },
         {
           getDaemonStatus: () => ({ running: false }),
+          listDaemonProcesses: () => [],
           spawn: mockSpawn as never,
           writeDaemonState: vi.fn(),
           openSync: vi.fn().mockReturnValue(3),
@@ -1711,6 +1714,7 @@ describe("daemon", () => {
         { version: "2.0.0" },
         {
           getDaemonStatus: () => ({ running: false }),
+          listDaemonProcesses: () => [],
           spawn: mockSpawn as never,
           writeDaemonState: mockWriteState,
           openSync: vi.fn().mockReturnValue(3),
@@ -1730,6 +1734,7 @@ describe("daemon", () => {
         { smartSchedule: false },
         {
           getDaemonStatus: () => ({ running: false }),
+          listDaemonProcesses: () => [],
           spawn: mockSpawn as never,
           writeDaemonState: vi.fn(),
           openSync: vi.fn().mockReturnValue(3),
@@ -1750,6 +1755,7 @@ describe("daemon", () => {
         {},
         {
           getDaemonStatus: () => ({ running: false }),
+          listDaemonProcesses: () => [],
           spawn: mockSpawn as never,
           writeDaemonState: vi.fn(),
           openSync: vi.fn().mockReturnValue(3),
@@ -1769,6 +1775,7 @@ describe("daemon", () => {
         {},
         {
           getDaemonStatus: () => ({ running: false }),
+          listDaemonProcesses: () => [],
           spawn: vi.fn().mockReturnValue(mockChild) as never,
           writeDaemonState: vi.fn(),
           openSync: vi.fn().mockReturnValue(3),
@@ -1791,6 +1798,7 @@ describe("daemon", () => {
         {},
         {
           getDaemonStatus: () => ({ running: false }),
+          listDaemonProcesses: () => [],
           spawn: mockSpawn as never,
           writeDaemonState: vi.fn(),
           openSync: vi.fn().mockReturnValue(3),
@@ -1814,6 +1822,30 @@ describe("daemon", () => {
       expect(result.success).toBe(false);
       expect(result.error).toBe("Daemon is already running");
       expect(result.pid).toBe(process.pid);
+    });
+
+    it("refuses to start when another daemon runs under a different config", () => {
+      const mockSpawn = vi.fn();
+
+      const result = startDaemon(
+        { interval: "60" },
+        {
+          getDaemonStatus: () => ({ running: false }),
+          listDaemonProcesses: () => [
+            { pid: 555, args: ["daemon", "_run", "--notify"] },
+          ],
+          spawn: mockSpawn as never,
+          writeDaemonState: vi.fn(),
+          openSync: vi.fn().mockReturnValue(3),
+          closeSync: vi.fn(),
+        },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/already running/i);
+      expect(result.error).toContain("555");
+      expect(result.pid).toBe(555);
+      expect(mockSpawn).not.toHaveBeenCalled();
     });
   });
 

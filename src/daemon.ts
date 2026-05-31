@@ -582,6 +582,7 @@ interface StartDaemonDeps {
   openSync: (path: string, flags: string) => number;
   closeSync: (fd: number) => void;
   rotateLog?: (logPath: string) => void;
+  listDaemonProcesses?: () => { pid: number; args: string[] }[];
 }
 
 export function startDaemon(
@@ -608,6 +609,22 @@ export function startDaemon(
       success: false,
       pid: status.pid,
       error: "Daemon is already running",
+    };
+  }
+
+  // Single-instance enforcement is otherwise per-config-dir (the PID file lives
+  // under resolveConfigDir()). Scan machine-wide so a daemon scoped to a
+  // different — or deleted — config dir can't run alongside this one and
+  // double-ping the same accounts.
+  /* c8 ignore next -- production default, tested via DI */
+  const _listDaemonProcesses = deps?.listDaemonProcesses ?? listDaemonProcesses;
+  const others = _listDaemonProcesses();
+  if (others.length > 0) {
+    const pids = others.map((p) => p.pid).join(", ");
+    return {
+      success: false,
+      pid: others[0].pid,
+      error: `Another cc-ping daemon is already running (pid ${pids}), possibly under a different config dir. Stop it first: cc-ping daemon stop`,
     };
   }
 
