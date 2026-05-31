@@ -95,7 +95,7 @@ jobs:
                 ENV["BUN_INSTALL_CACHE_DIR"] = buildpath/"bun-cache"
                 system "bun", "install", "--no-save"
                 system "bun", "build", "--compile", "--minify",
-                       "--define", "__VERSION__=\"\\\"#{version}\\\"\"",
+                       "--define", "__VERSION__=\"#{version}\"",
                        "./src/cli.ts", "--outfile", "cc-ping"
                 # Re-sign ad-hoc to satisfy Gatekeeper after compile.
                 system "codesign", "--remove-signature", "cc-ping"
