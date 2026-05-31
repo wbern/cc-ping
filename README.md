@@ -320,8 +320,10 @@ cc-ping moo               # send a test push once you've subscribed in the app
 
 - The URL must be **HTTPS**, and the topic string **is the credential** — anyone who knows it can read your alerts, so keep it private. cc-ping masks the URL in `notify show` and never logs it.
 - Remote notifications fire independently of `--notify`, so the daemon pushes to your phone whether or not desktop notifications are enabled.
-- Delivery is best-effort with a short timeout and a couple of retries on transient errors; a failed push is logged and never affects pinging.
+- Delivery is best-effort with a short timeout and a couple of retries on transient errors; a failed push is logged and never affects pinging. A foreground `cc-ping ping` waits for the push to send, but never longer than a few seconds.
 - Disable any time with `cc-ping notify clear-url`.
+
+**Using a different app (Discord, Telegram, Slack, email, …):** cc-ping speaks ntfy's wire format (a plain-text body with `Title`/`Priority` headers), so pointing it straight at a raw Discord/Slack/Telegram webhook won't work — those expect their own payloads. Instead, send to ntfy and let a gateway fan out: ntfy itself can forward to other services, or run [Apprise](https://github.com/caronc/apprise) / [shoutrrr](https://github.com/containrrr/shoutrrr) as a bridge and point `cc-ping notify set-url` at it. Self-hosting ntfy also gives you access tokens and ACLs if a hard-to-guess topic isn't enough.
 
 ## Shell completions
 

@@ -857,4 +857,26 @@ describe("runPing", () => {
     expect(sendRemote).toHaveBeenCalledTimes(1);
     expect(sendRemote.mock.calls[0][1].priority).toBe("high");
   });
+
+  it("returns without waiting past the deadline when a remote push hangs", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: false, durationMs: 100, error: "timed out" },
+    ]);
+    // A push that never resolves — runPing must still return via the deadline.
+    const sendRemote = vi.fn(() => new Promise<boolean>(() => {}));
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    const { exitCode } = await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      remoteNotify: { url: "https://ntfy.sh/secret" },
+      _sendRemote: sendRemote,
+      _remoteDeadlineMs: 5,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(exitCode).toBe(1);
+    expect(sendRemote).toHaveBeenCalledTimes(1);
+  });
 });

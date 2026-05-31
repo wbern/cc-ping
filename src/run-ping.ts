@@ -35,6 +35,26 @@ interface RunPingOptions {
   _sleep?: (ms: number) => Promise<void>;
   remoteNotify?: RemoteNotifyConfig;
   _sendRemote?: typeof sendRemoteNotification;
+  _remoteDeadlineMs?: number;
+}
+
+// A one-shot `cc-ping ping` calls process.exit right after runPing returns, so
+// we await the remote POSTs to avoid cutting them off mid-flight — but never
+// longer than this, so an unreachable endpoint can't stall the command.
+const REMOTE_BATCH_DEADLINE_MS = 8_000;
+
+function settleWithDeadline(
+  promises: Promise<void>[],
+  deadlineMs: number,
+): Promise<void> {
+  if (promises.length === 0) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, deadlineMs);
+    Promise.allSettled(promises).then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 interface RunPingResult {
@@ -178,9 +198,10 @@ export async function runPing(
     fireRemote("new-window", "cc-ping: new window", body, "default");
   }
 
-  if (remotePromises.length > 0) {
-    await Promise.all(remotePromises);
-  }
+  await settleWithDeadline(
+    remotePromises,
+    options._remoteDeadlineMs ?? REMOTE_BATCH_DEADLINE_MS,
+  );
 
   const failedHandles = results.filter((r) => !r.success).map((r) => r.handle);
   const failureReasons: Record<string, string> = {};

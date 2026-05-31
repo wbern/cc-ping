@@ -33,6 +33,17 @@ describe("buildNotifyUrl", () => {
     );
   });
 
+  it("accepts a generated UUID topic", () => {
+    expect(buildNotifyUrl(generateTopic(() => "7f3a-9c2e"))).toBe(
+      "https://ntfy.sh/cc-ping-7f3a-9c2e",
+    );
+  });
+
+  it("rejects a topic with disallowed characters", () => {
+    expect(() => buildNotifyUrl("my topic")).toThrow("Topic may only contain");
+    expect(() => buildNotifyUrl("a/b")).toThrow("Topic may only contain");
+  });
+
   it("rejects a non-HTTPS server", () => {
     expect(() => buildNotifyUrl("my-topic", "http://ntfy.sh")).toThrow(
       "Notification server must be HTTPS",
