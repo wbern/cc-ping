@@ -1,16 +1,24 @@
 import { ringBell } from "./bell.js";
 import { green, red } from "./color.js";
+import { getRemoteNotify } from "./config.js";
 import { appendHistoryEntry } from "./history.js";
 import { createLogger } from "./logger.js";
 import { sendNotification } from "./notify.js";
 import { isAuthError, pingAccounts } from "./ping.js";
+import { sendRemoteNotification } from "./remote-notify.js";
 import {
   formatTimeRemaining,
   getWindowReset,
   recordAuthFailure,
   recordPing,
 } from "./state.js";
-import type { AccountConfig, PingMeta, PingResult } from "./types.js";
+import type {
+  AccountConfig,
+  PingMeta,
+  PingResult,
+  RemoteNotifyConfig,
+  RemoteNotifyEvent,
+} from "./types.js";
 
 interface RunPingOptions {
   parallel: boolean;
@@ -25,6 +33,8 @@ interface RunPingOptions {
   stdout?: (msg: string) => void;
   stderr?: (msg: string) => void;
   _sleep?: (ms: number) => Promise<void>;
+  remoteNotify?: RemoteNotifyConfig;
+  _sendRemote?: typeof sendRemoteNotification;
 }
 
 interface RunPingResult {
@@ -116,27 +126,60 @@ export async function runPing(
     ringBell();
   }
 
-  if (failed > 0 && options.notify && !options.quietFailure) {
+  // Remote (phone) notifications fire independently of --notify so a headless
+  // daemon can alert a phone even without a desktop. Best-effort: a failed POST
+  // is logged and never fails the ping.
+  const remoteNotify = options.remoteNotify ?? getRemoteNotify();
+  const sendRemote = options._sendRemote ?? sendRemoteNotification;
+  const remotePromises: Promise<void>[] = [];
+  const fireRemote = (
+    event: RemoteNotifyEvent,
+    title: string,
+    body: string,
+    priority: string,
+  ) => {
+    if (!remoteNotify?.url) return;
+    if (remoteNotify.events && !remoteNotify.events.includes(event)) return;
+    remotePromises.push(
+      sendRemote(
+        remoteNotify.url,
+        { title, body, priority },
+        { log: logger.error },
+      )
+        .then((ok) => {
+          if (!ok) logger.error(`Remote notification failed (${event})`);
+        })
+        .catch(() => logger.error(`Remote notification error (${event})`)),
+    );
+  };
+
+  if (failed > 0 && !options.quietFailure) {
     const failures = results
       .filter((r) => !r.success)
       .map((r) => (r.error ? `${r.handle} (${r.error})` : r.handle));
-    await sendNotification(
-      "cc-ping: ping failure",
-      `${failed} account(s) failed: ${failures.join(", ")}`,
-    );
+    const body = `${failed} account(s) failed: ${failures.join(", ")}`;
+    if (options.notify) {
+      await sendNotification("cc-ping: ping failure", body);
+    }
+    fireRemote("failure", "cc-ping: ping failure", body, "high");
   }
 
-  if (options.notify) {
-    const newWindows = results
-      .filter((r) => r.success && hadNoWindow.has(r.handle))
-      .map((r) => r.handle);
-    if (newWindows.length > 0) {
-      let body = `${newWindows.length} account(s) ready: ${newWindows.join(", ")}`;
-      if (options.wakeDelayMs) {
-        body += ` (woke ${formatTimeRemaining(options.wakeDelayMs)} late)`;
-      }
+  const newWindows = results
+    .filter((r) => r.success && hadNoWindow.has(r.handle))
+    .map((r) => r.handle);
+  if (newWindows.length > 0) {
+    let body = `${newWindows.length} account(s) ready: ${newWindows.join(", ")}`;
+    if (options.wakeDelayMs) {
+      body += ` (woke ${formatTimeRemaining(options.wakeDelayMs)} late)`;
+    }
+    if (options.notify) {
       await sendNotification("cc-ping: new window", body, { sound: true });
     }
+    fireRemote("new-window", "cc-ping: new window", body, "default");
+  }
+
+  if (remotePromises.length > 0) {
+    await Promise.all(remotePromises);
   }
 
   const failedHandles = results.filter((r) => !r.success).map((r) => r.handle);

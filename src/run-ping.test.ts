@@ -723,4 +723,138 @@ describe("runPing", () => {
       { sound: true },
     );
   });
+
+  it("fires a remote failure notification even when --notify is off", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: false, durationMs: 100, error: "timed out" },
+    ]);
+    const sendRemote = vi.fn().mockResolvedValue(true);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      remoteNotify: { url: "https://ntfy.sh/secret" },
+      _sendRemote: sendRemote,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(sendRemote).toHaveBeenCalledWith(
+      "https://ntfy.sh/secret",
+      {
+        title: "cc-ping: ping failure",
+        body: "1 account(s) failed: alice (timed out)",
+        priority: "high",
+      },
+      expect.objectContaining({ log: expect.any(Function) }),
+    );
+    expect(mockSendNotification).not.toHaveBeenCalled();
+  });
+
+  it("fires a remote new-window notification with default priority", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: true, durationMs: 100 },
+    ]);
+    const sendRemote = vi.fn().mockResolvedValue(true);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      remoteNotify: { url: "https://ntfy.sh/secret" },
+      _sendRemote: sendRemote,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(sendRemote).toHaveBeenCalledWith(
+      "https://ntfy.sh/secret",
+      {
+        title: "cc-ping: new window",
+        body: "1 account(s) ready: alice",
+        priority: "default",
+      },
+      expect.objectContaining({ log: expect.any(Function) }),
+    );
+  });
+
+  it("logs to stderr when a remote notification returns false", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: false, durationMs: 100, error: "timed out" },
+    ]);
+    const sendRemote = vi.fn().mockResolvedValue(false);
+    const stderr = vi.fn();
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      remoteNotify: { url: "https://ntfy.sh/secret" },
+      _sendRemote: sendRemote,
+      stdout: vi.fn(),
+      stderr,
+    });
+
+    expect(stderr).toHaveBeenCalledWith("Remote notification failed (failure)");
+  });
+
+  it("logs to stderr when a remote notification throws", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: false, durationMs: 100, error: "timed out" },
+    ]);
+    const sendRemote = vi.fn().mockRejectedValue(new Error("boom"));
+    const stderr = vi.fn();
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      remoteNotify: { url: "https://ntfy.sh/secret" },
+      _sendRemote: sendRemote,
+      stdout: vi.fn(),
+      stderr,
+    });
+
+    expect(stderr).toHaveBeenCalledWith("Remote notification error (failure)");
+  });
+
+  it("skips remote events not in the configured events filter", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: false, durationMs: 100, error: "timed out" },
+    ]);
+    const sendRemote = vi.fn().mockResolvedValue(true);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      remoteNotify: { url: "https://ntfy.sh/secret", events: ["new-window"] },
+      _sendRemote: sendRemote,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(sendRemote).not.toHaveBeenCalled();
+  });
+
+  it("fires a remote event that is included in the events filter", async () => {
+    mockPingAccounts.mockResolvedValue([
+      { handle: "alice", success: false, durationMs: 100, error: "timed out" },
+    ]);
+    const sendRemote = vi.fn().mockResolvedValue(true);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      remoteNotify: { url: "https://ntfy.sh/secret", events: ["failure"] },
+      _sendRemote: sendRemote,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(sendRemote).toHaveBeenCalledTimes(1);
+    expect(sendRemote.mock.calls[0][1].priority).toBe("high");
+  });
 });

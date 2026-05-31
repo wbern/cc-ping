@@ -193,7 +193,14 @@ Generate shell completion scripts for `bash`, `zsh`, or `fish`.
 
 ### `cc-ping moo`
 
-Send a test desktop notification to verify notifications work on your platform.
+Send a test notification to verify notifications work on your platform. Fires a desktop notification, and — if a remote URL is configured — a remote (phone) push too.
+
+### `cc-ping notify set-url <url>`
+
+Configure remote phone notifications via an [ntfy.sh](https://ntfy.sh)-compatible HTTPS push URL. The topic in the URL is the credential, so treat it as a secret. See [Remote notifications](#remote-notifications).
+
+- `cc-ping notify show` — show whether remote notifications are configured (URL is masked)
+- `cc-ping notify clear-url` — disable remote notifications
 
 ## Daemon
 
@@ -294,6 +301,22 @@ Desktop notifications work on macOS, Linux, and Windows:
 | Windows | PowerShell `New-BurntToastNotification` |
 
 Use `cc-ping moo` to verify notifications work on your system.
+
+### Remote notifications
+
+For alerts that reach your phone when you're away from your desk, cc-ping can POST to an [ntfy.sh](https://ntfy.sh)-compatible push endpoint (genuine iOS + Android push, no signup, self-hostable). This is especially useful for a headless daemon: it surfaces the high-value events — a ping **failure** or an account that needs re-login — even with no desktop attached.
+
+```bash
+cc-ping notify set-url https://ntfy.sh/your-secret-topic   # pick a hard-to-guess topic
+cc-ping moo                                                # send a test push
+```
+
+Then subscribe to the same topic in the ntfy mobile app. Notes:
+
+- The URL must be **HTTPS**, and the topic string **is the credential** — anyone who knows it can read your alerts, so keep it private. cc-ping never logs or prints the URL.
+- Remote notifications fire independently of `--notify`, so the daemon pushes to your phone whether or not desktop notifications are enabled.
+- Delivery is best-effort with a short timeout and a couple of retries on transient errors; a failed push is logged and never affects pinging.
+- Disable any time with `cc-ping notify clear-url`.
 
 ## Shell completions
 

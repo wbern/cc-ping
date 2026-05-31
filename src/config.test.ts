@@ -25,6 +25,9 @@ const {
   removeAccount,
   listAccounts,
   resetSchedule,
+  getRemoteNotify,
+  setRemoteNotifyUrl,
+  clearRemoteNotify,
 } = await import("./config.js");
 const { recordPing, loadState } = await import("./state.js");
 
@@ -171,5 +174,43 @@ describe("config", () => {
 
   it("returns false when resetting non-existent account", () => {
     expect(resetSchedule("nope")).toBe(false);
+  });
+
+  it("returns undefined remote-notify config when unset", () => {
+    expect(getRemoteNotify()).toBeUndefined();
+  });
+
+  it("sets and reads the remote-notify URL", () => {
+    setRemoteNotifyUrl("https://ntfy.sh/secret");
+    expect(getRemoteNotify()).toEqual({ url: "https://ntfy.sh/secret" });
+  });
+
+  it("preserves existing events when updating the URL", () => {
+    saveConfig({
+      accounts: [],
+      remoteNotify: { url: "https://old", events: ["failure"] },
+    });
+    setRemoteNotifyUrl("https://ntfy.sh/new");
+    expect(getRemoteNotify()).toEqual({
+      url: "https://ntfy.sh/new",
+      events: ["failure"],
+    });
+  });
+
+  it("preserves accounts when setting the remote-notify URL", () => {
+    addAccount("acct1", "/path1");
+    setRemoteNotifyUrl("https://ntfy.sh/secret");
+    expect(listAccounts()).toHaveLength(1);
+    expect(getRemoteNotify()?.url).toBe("https://ntfy.sh/secret");
+  });
+
+  it("clears the remote-notify config", () => {
+    setRemoteNotifyUrl("https://ntfy.sh/secret");
+    expect(clearRemoteNotify()).toBe(true);
+    expect(getRemoteNotify()).toBeUndefined();
+  });
+
+  it("returns false when clearing an unset remote-notify config", () => {
+    expect(clearRemoteNotify()).toBe(false);
   });
 });

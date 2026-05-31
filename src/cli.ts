@@ -6,10 +6,13 @@ import { yellow } from "./color.js";
 import { generateCompletion } from "./completions.js";
 import {
   addAccount,
+  clearRemoteNotify,
+  getRemoteNotify,
   listAccounts,
   removeAccount,
   resetSchedule,
   saveConfig,
+  setRemoteNotifyUrl,
 } from "./config.js";
 import {
   getDaemonStatus,
@@ -33,6 +36,7 @@ import { resolveLoginTargets, runLogins } from "./login.js";
 import { getNextReset } from "./next-reset.js";
 import { sendNotification } from "./notify.js";
 import { setConfigDir } from "./paths.js";
+import { sendRemoteNotification } from "./remote-notify.js";
 import { runPing } from "./run-ping.js";
 import { scanAccounts } from "./scan.js";
 import {
@@ -477,20 +481,82 @@ program
 
 program
   .command("moo")
-  .description("Send a test notification to verify desktop notifications work")
+  .description("Send a test notification to verify notifications work")
   .action(async () => {
     const ok = await sendNotification(
       "cc-ping",
       "Moo! Notifications are working.",
     );
     if (ok) {
-      console.log("Notification sent");
+      console.log("Desktop notification sent");
     } else {
       console.error(
-        "Notification failed (unsupported platform or command error)",
+        "Desktop notification failed (unsupported platform or command error)",
       );
       process.exit(1);
     }
+    const remote = getRemoteNotify();
+    if (remote?.url) {
+      const remoteOk = await sendRemoteNotification(remote.url, {
+        title: "cc-ping",
+        body: "Moo! Remote notifications are working.",
+        priority: "default",
+      });
+      if (remoteOk) {
+        console.log("Remote notification sent");
+      } else {
+        console.error("Remote notification failed (check the configured URL)");
+        process.exit(1);
+      }
+    }
+  });
+
+const notify = program
+  .command("notify")
+  .description("Manage remote phone notifications (ntfy.sh-compatible push)");
+
+notify
+  .command("set-url")
+  .description(
+    "Set the HTTPS push URL (the topic is a secret — keep it private)",
+  )
+  .argument(
+    "<url>",
+    "ntfy.sh topic URL, e.g. https://ntfy.sh/your-secret-topic",
+  )
+  .action((url: string) => {
+    if (!url.startsWith("https://")) {
+      console.error("URL must be HTTPS");
+      process.exit(1);
+    }
+    setRemoteNotifyUrl(url);
+    console.log("Remote notification URL saved. Test it with: cc-ping moo");
+  });
+
+notify
+  .command("clear-url")
+  .description("Disable remote notifications by removing the configured URL")
+  .action(() => {
+    if (clearRemoteNotify()) {
+      console.log("Remote notifications disabled");
+    } else {
+      console.log("Remote notifications were not configured");
+    }
+  });
+
+notify
+  .command("show")
+  .description(
+    "Show whether remote notifications are configured (URL is masked)",
+  )
+  .action(() => {
+    const remote = getRemoteNotify();
+    if (!remote?.url) {
+      console.log("Remote notifications: not configured");
+      return;
+    }
+    const events = remote.events ? remote.events.join(", ") : "all";
+    console.log(`Remote notifications: configured (events: ${events})`);
   });
 
 const daemon = program

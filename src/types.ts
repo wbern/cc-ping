@@ -41,8 +41,16 @@ export interface PingResult {
   claudeResponse?: ClaudeJsonResponse;
 }
 
+export type RemoteNotifyEvent = "failure" | "new-window";
+
+export interface RemoteNotifyConfig {
+  url: string;
+  events?: RemoteNotifyEvent[];
+}
+
 export interface Config {
   accounts: AccountConfig[];
+  remoteNotify?: RemoteNotifyConfig;
 }
 
 export interface AccountIdentity {

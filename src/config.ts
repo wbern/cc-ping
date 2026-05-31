@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveConfigDir } from "./paths.js";
 import { clearPingState } from "./state.js";
-import type { AccountConfig, Config } from "./types.js";
+import type { AccountConfig, Config, RemoteNotifyConfig } from "./types.js";
 
 export function loadConfig(): Config {
   const configFile = join(resolveConfigDir(), "config.json");
@@ -56,6 +56,24 @@ export function removeAccount(handle: string): boolean {
 
 export function listAccounts(): AccountConfig[] {
   return loadConfig().accounts;
+}
+
+export function getRemoteNotify(): RemoteNotifyConfig | undefined {
+  return loadConfig().remoteNotify;
+}
+
+export function setRemoteNotifyUrl(url: string): void {
+  const config = loadConfig();
+  config.remoteNotify = { ...config.remoteNotify, url };
+  saveConfig(config);
+}
+
+export function clearRemoteNotify(): boolean {
+  const config = loadConfig();
+  if (!config.remoteNotify) return false;
+  config.remoteNotify = undefined;
+  saveConfig(config);
+  return true;
 }
 
 export function resetSchedule(
