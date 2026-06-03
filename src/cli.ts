@@ -832,6 +832,13 @@ daemon
     if (svc.installed) {
       const kind = svc.platform === "darwin" ? "launchd" : "systemd";
       console.log(`  System service: installed (${kind})`);
+      if (svc.watchdogInstalled === false) {
+        console.log(
+          yellow(
+            "  Warning: watchdog not installed — re-run `cc-ping daemon install` to enable crash recovery.",
+          ),
+        );
+      }
     }
     if (status.versionMismatch) {
       console.log(
@@ -943,6 +950,11 @@ daemon
       autoUpdate: opts.autoUpdate,
     });
   });
+
+daemon.command("_healthcheck", { hidden: true }).action(async () => {
+  const { runHealthcheckWithDefaults } = await import("./watchdog.js");
+  runHealthcheckWithDefaults();
+});
 
 const schedule = program
   .command("schedule")

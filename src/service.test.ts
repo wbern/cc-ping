@@ -3,6 +3,8 @@ import {
   type ExecInfo,
   generateLaunchdPlist,
   generateSystemdUnit,
+  generateWatchdogPlist,
+  generateWatchdogSystemd,
   getServiceStatus,
   installService,
   resolveExecutable,
@@ -11,6 +13,7 @@ import {
   startOrRestartDaemon,
   startService,
   uninstallService,
+  watchdogServicePath,
 } from "./service.js";
 
 function makeDeps(overrides?: Partial<ServiceDeps>): ServiceDeps {
@@ -306,6 +309,44 @@ describe("service", () => {
     });
   });
 
+  describe("generateWatchdogPlist", () => {
+    const execInfo: ExecInfo = {
+      executable: "/usr/local/bin/cc-ping",
+      args: [],
+    };
+
+    it("runs daemon _healthcheck on a fixed StartInterval", () => {
+      const plist = generateWatchdogPlist(execInfo);
+      expect(plist).toContain("<string>com.cc-ping.watchdog</string>");
+      expect(plist).toContain("<string>daemon</string>");
+      expect(plist).toContain("<string>_healthcheck</string>");
+      expect(plist).toContain("<key>StartInterval</key>");
+    });
+
+    it("sets CC_PING_CONFIG and a config-scoped log path when configDir given", () => {
+      const plist = generateWatchdogPlist(execInfo, "/my/config");
+      expect(plist).toContain("<key>CC_PING_CONFIG</key>");
+      expect(plist).toContain("<string>/my/config</string>");
+      expect(plist).toContain("/my/config/watchdog.log");
+    });
+
+    it("includes PATH in the environment when provided", () => {
+      const plist = generateWatchdogPlist(execInfo, undefined, "/usr/bin:/bin");
+      expect(plist).toContain("<key>PATH</key>");
+      expect(plist).toContain("<string>/usr/bin:/bin</string>");
+    });
+
+    it("omits the environment block when running via a script prefix with no config or path", () => {
+      const fallback: ExecInfo = {
+        executable: "/usr/bin/node",
+        args: ["/path/to/cli.js"],
+      };
+      const plist = generateWatchdogPlist(fallback);
+      expect(plist).not.toContain("EnvironmentVariables");
+      expect(plist).not.toContain("CC_PING_BIN");
+    });
+  });
+
   describe("generateSystemdUnit", () => {
     const execInfo: ExecInfo = {
       executable: "/usr/local/bin/cc-ping",
@@ -392,6 +433,56 @@ describe("service", () => {
     });
   });
 
+  describe("generateWatchdogSystemd", () => {
+    const execInfo: ExecInfo = {
+      executable: "/usr/local/bin/cc-ping",
+      args: [],
+    };
+
+    it("generates a oneshot service that runs daemon _healthcheck", () => {
+      const { service } = generateWatchdogSystemd(execInfo);
+      expect(service).toContain("Type=oneshot");
+      expect(service).toContain(
+        "ExecStart=/usr/local/bin/cc-ping daemon _healthcheck",
+      );
+    });
+
+    it("generates a timer that fires on a recurring interval", () => {
+      const { timer } = generateWatchdogSystemd(execInfo);
+      expect(timer).toContain("[Timer]");
+      expect(timer).toContain("OnUnitActiveSec=");
+      expect(timer).toContain("WantedBy=timers.target");
+    });
+
+    it("includes CC_PING_CONFIG and PATH in the service when provided", () => {
+      const { service } = generateWatchdogSystemd(
+        execInfo,
+        "/custom/config",
+        "/usr/bin:/bin",
+      );
+      expect(service).toContain("Environment=CC_PING_CONFIG=/custom/config");
+      expect(service).toContain("Environment=PATH=/usr/bin:/bin");
+    });
+
+    it("omits CC_PING_BIN when executable uses node fallback", () => {
+      const fallbackInfo: ExecInfo = {
+        executable: "/usr/bin/node",
+        args: ["/usr/local/lib/cli.js"],
+      };
+      const { service } = generateWatchdogSystemd(fallbackInfo);
+      expect(service).not.toContain("CC_PING_BIN");
+    });
+
+    it("quotes args with spaces", () => {
+      const info: ExecInfo = {
+        executable: "/path/to/node",
+        args: ["/path with spaces/cli.js"],
+      };
+      const { service } = generateWatchdogSystemd(info);
+      expect(service).toContain('"/path with spaces/cli.js"');
+    });
+  });
+
   describe("servicePath", () => {
     it("returns launchd plist path on darwin", () => {
       const path = servicePath("darwin", "/Users/test");
@@ -416,6 +507,26 @@ describe("service", () => {
     it("throws for unknown platform", () => {
       expect(() => servicePath("freebsd", "/home/test")).toThrow(
         "Unsupported platform: freebsd",
+      );
+    });
+  });
+
+  describe("watchdogServicePath", () => {
+    it("returns the watchdog launchd plist path on darwin", () => {
+      expect(watchdogServicePath("darwin", "/Users/test")).toBe(
+        "/Users/test/Library/LaunchAgents/com.cc-ping.watchdog.plist",
+      );
+    });
+
+    it("returns the watchdog systemd timer path on linux", () => {
+      expect(watchdogServicePath("linux", "/home/test")).toBe(
+        "/home/test/.config/systemd/user/cc-ping-watchdog.timer",
+      );
+    });
+
+    it("throws for unsupported platform", () => {
+      expect(() => watchdogServicePath("win32", "C:\\Users\\test")).toThrow(
+        "Unsupported platform: win32",
       );
     });
   });
@@ -474,6 +585,22 @@ describe("service", () => {
       );
     });
 
+    it("also installs and loads the watchdog agent on darwin", async () => {
+      const writeFileSync = vi.fn();
+      const execSync = vi.fn().mockReturnValue("/usr/local/bin/cc-ping\n");
+      const deps = makeDeps({ platform: "darwin", writeFileSync, execSync });
+
+      await installService({}, deps);
+
+      expect(writeFileSync).toHaveBeenCalledWith(
+        expect.stringContaining("com.cc-ping.watchdog.plist"),
+        expect.stringContaining("_healthcheck"),
+      );
+      expect(execSync).toHaveBeenCalledWith(
+        expect.stringContaining("com.cc-ping.watchdog.plist"),
+      );
+    });
+
     it("writes unit and enables on linux", async () => {
       const writeFileSync = vi.fn();
       const mkdirSync = vi.fn();
@@ -496,6 +623,26 @@ describe("service", () => {
       expect(execSync).toHaveBeenCalledWith("systemctl --user daemon-reload");
       expect(execSync).toHaveBeenCalledWith(
         expect.stringContaining("systemctl --user enable --now"),
+      );
+    });
+
+    it("also installs and enables the watchdog timer on linux", async () => {
+      const writeFileSync = vi.fn();
+      const execSync = vi.fn().mockReturnValue("/usr/local/bin/cc-ping\n");
+      const deps = makeDeps({ platform: "linux", writeFileSync, execSync });
+
+      await installService({}, deps);
+
+      expect(writeFileSync).toHaveBeenCalledWith(
+        expect.stringContaining("cc-ping-watchdog.service"),
+        expect.stringContaining("_healthcheck"),
+      );
+      expect(writeFileSync).toHaveBeenCalledWith(
+        expect.stringContaining("cc-ping-watchdog.timer"),
+        expect.stringContaining("[Timer]"),
+      );
+      expect(execSync).toHaveBeenCalledWith(
+        "systemctl --user enable --now cc-ping-watchdog.timer",
       );
     });
 
@@ -646,6 +793,67 @@ describe("service", () => {
       );
     });
 
+    it("also unloads and removes the watchdog agent on darwin", async () => {
+      const unlinkSync = vi.fn();
+      const execSync = vi.fn().mockReturnValue("");
+      const deps = makeDeps({
+        platform: "darwin",
+        existsSync: () => true,
+        unlinkSync,
+        execSync,
+      });
+
+      await uninstallService(deps);
+
+      expect(execSync).toHaveBeenCalledWith(
+        expect.stringContaining("com.cc-ping.watchdog.plist"),
+      );
+      expect(unlinkSync).toHaveBeenCalledWith(
+        expect.stringContaining("com.cc-ping.watchdog.plist"),
+      );
+    });
+
+    it("also disables and removes the watchdog units on linux", async () => {
+      const unlinkSync = vi.fn();
+      const execSync = vi.fn().mockReturnValue("");
+      const deps = makeDeps({
+        platform: "linux",
+        existsSync: () => true,
+        unlinkSync,
+        execSync,
+      });
+
+      await uninstallService(deps);
+
+      expect(execSync).toHaveBeenCalledWith(
+        "systemctl --user disable --now cc-ping-watchdog.timer",
+      );
+      expect(unlinkSync).toHaveBeenCalledWith(
+        expect.stringContaining("cc-ping-watchdog.timer"),
+      );
+      expect(unlinkSync).toHaveBeenCalledWith(
+        expect.stringContaining("cc-ping-watchdog.service"),
+      );
+    });
+
+    it("skips watchdog files that are absent (pre-watchdog install)", async () => {
+      const unlinkSync = vi.fn();
+      const execSync = vi.fn().mockReturnValue("");
+      const deps = makeDeps({
+        platform: "darwin",
+        existsSync: (p: string) => !p.includes("watchdog"),
+        unlinkSync,
+        execSync,
+      });
+
+      const result = await uninstallService(deps);
+
+      expect(result.success).toBe(true);
+      expect(unlinkSync).not.toHaveBeenCalledWith(
+        expect.stringContaining("watchdog"),
+      );
+    });
+
     it("disables and removes unit on linux", async () => {
       const unlinkSync = vi.fn();
       const execSync = vi.fn().mockReturnValue("");
@@ -784,6 +992,29 @@ describe("service", () => {
   });
 
   describe("getServiceStatus", () => {
+    it("reports the watchdog as missing when only the daemon service exists", () => {
+      const deps = makeDeps({
+        platform: "darwin",
+        existsSync: (p: string) => !p.includes("watchdog"),
+      });
+
+      const status = getServiceStatus(deps);
+
+      expect(status.installed).toBe(true);
+      expect(status.watchdogInstalled).toBe(false);
+    });
+
+    it("reports the watchdog as installed when its unit exists", () => {
+      const deps = makeDeps({
+        platform: "darwin",
+        existsSync: () => true,
+      });
+
+      const status = getServiceStatus(deps);
+
+      expect(status.watchdogInstalled).toBe(true);
+    });
+
     it("returns installed:true when service file exists on darwin", () => {
       const deps = makeDeps({
         platform: "darwin",

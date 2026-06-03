@@ -24,7 +24,7 @@ If knip or coverage fails, the commit is rejected. Fix the issue and create a ne
 ## Architecture
 
 - **Dependency injection**: All side effects are injected via `deps` params. Production defaults are in the function body; tests pass mocks. This pattern is used in `daemon.ts`, `service.ts`, `ping.ts`, `run-ping.ts`, and others.
-- **Single file per concern**: `ping.ts` (spawn claude), `run-ping.ts` (orchestrate + output), `daemon.ts` (loop + lifecycle), `service.ts` (launchd/systemd), `state.ts` (ping timestamps), `config.ts` (account CRUD), `format.ts` (date/time formatting helpers). `status.ts` re-exports from `format.ts` for backwards compatibility.
+- **Single file per concern**: `ping.ts` (spawn claude), `run-ping.ts` (orchestrate + output), `daemon.ts` (loop + lifecycle), `service.ts` (launchd/systemd), `watchdog.ts` (heartbeat staleness check + recovery), `state.ts` (ping timestamps), `config.ts` (account CRUD), `format.ts` (date/time formatting helpers). `status.ts` re-exports from `format.ts` for backwards compatibility.
 - **No classes**: Everything is plain functions + interfaces.
 
 ## Timeout model
@@ -38,6 +38,17 @@ If knip or coverage fails, the commit is rejected. Fix the issue and create a ne
 - After retry exhaustion with failures still pending, the next sleep is capped at 15min (vs the full interval) so transient outages recover within minutes. The cap is single-use: it applies only to the sleep immediately after a failed iteration and is reset at the start of the next loop, so a recovered or no-op iteration goes back to the full interval
 - Detects system sleep via timer overshoot (>60s late)
 - Graceful stop: sentinel file polled every 500ms for up to 60s, then SIGTERM
+
+## Watchdog / heartbeat
+
+The daemon runs a Bun-compiled binary, and Bun's kqueue event loop can wedge at ~100% CPU after macOS laptop sleep/wake at low battery — the macOS monotonic clock (`mach_absolute_time`) pauses/jumps backward across deep sleep, so the poll timeout computes to 0 and the loop spins while pending timers never fire (libuv#2891 / oven-sh/bun#27766). When wedged, `setTimeout`/`setInterval` are dead, so **the daemon cannot recover itself** — an in-process watchdog would be wedged too. Recovery has to come from a separate fresh process.
+
+The mechanism, split across `daemon.ts` and `watchdog.ts`:
+
+- `startHeartbeat()` (daemon.ts) refreshes `daemon.heartbeat` every 30s on its own interval. It stays fresh through a 5h idle (decoupled from the ping interval) but goes stale the instant the loop wedges. unref'd so it never holds the process open.
+- `runHealthcheck()` (watchdog.ts) is pure decision logic (all I/O injected). It force-restarts **only** when a recorded daemon pid is alive AND the heartbeat exists AND is stale past the threshold (default 3min). A missing heartbeat → no-op (so it never kills a pre-feature or just-restarted daemon). "Restart" = `SIGKILL` (a wedged loop ignores SIGTERM) + clear the pid/heartbeat files; the service manager relaunches via launchd `KeepAlive(SuccessfulExit=false)` / systemd `Restart=on-failure`.
+- `service.ts` installs a second unit driving `cc-ping daemon _healthcheck` every 120s: a launchd `StartInterval` agent (`com.cc-ping.watchdog`) on darwin, a systemd `.timer` + oneshot `.service` (`cc-ping-watchdog`) on linux. Recovery latency ≈ watchdog interval + staleness threshold.
+- **Upgrade note:** the watchdog unit is only added by `daemon install`. `--auto-update` restarts the daemon process but does not regenerate service files, so existing installs must re-run `daemon install` to get the watchdog; `daemon status` warns when `watchdogInstalled === false`.
 
 ## Releases
 

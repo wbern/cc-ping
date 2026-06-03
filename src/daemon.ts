@@ -36,6 +36,10 @@ export function daemonStopPath(): string {
   return join(resolveConfigDir(), "daemon.stop");
 }
 
+export function daemonHeartbeatPath(): string {
+  return join(resolveConfigDir(), "daemon.heartbeat");
+}
+
 // --- Log rotation ---
 
 const MAX_LOG_BYTES = 512 * 1024; // 512 KB
@@ -49,6 +53,35 @@ export function rotateLogFile(logPath: string, maxBytes = MAX_LOG_BYTES): void {
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }
+}
+
+// --- Heartbeat ---
+//
+// A liveness signal the daemon refreshes on a fixed interval. When the event
+// loop is healthy the file's mtime stays fresh regardless of how long the ping
+// interval is; when the loop wedges (e.g. the macOS sleep/wake timer busy-loop,
+// libuv#2891 / oven-sh/bun#27766) the interval stops firing and the file goes
+// stale. An external watchdog reads that staleness to recover the daemon.
+
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
+interface Heartbeat {
+  stop(): void;
+}
+
+export function startHeartbeat(deps?: {
+  write?: () => void;
+  intervalMs?: number;
+}): Heartbeat {
+  const write =
+    deps?.write ??
+    (() =>
+      writeFileSync(daemonHeartbeatPath(), `${new Date().toISOString()}\n`));
+  const intervalMs = deps?.intervalMs ?? HEARTBEAT_INTERVAL_MS;
+  write();
+  const timer = setInterval(write, intervalMs);
+  timer.unref?.();
+  return { stop: () => clearInterval(timer) };
 }
 
 // --- Sleep watchdog ---
@@ -1016,6 +1049,11 @@ export async function runDaemonWithDefaults(
   }
 
   const SLEEP_POLL_MS = 1_000;
+  // Liveness signal for the external watchdog. Refreshed on its own interval so
+  // it stays fresh through a 5h idle but goes stale the moment the event loop
+  // wedges — which is what the watchdog keys off to force a recovery. unref'd,
+  // so it never keeps the process alive on its own.
+  const heartbeat = startHeartbeat();
   await runDaemon(intervalMs, options, {
     runPing,
     listAccounts,
@@ -1060,5 +1098,6 @@ export async function runDaemonWithDefaults(
     removeSignal: (signal, handler) => process.removeListener(signal, handler),
     exit: (code) => process.exit(code),
   });
+  heartbeat.stop();
 }
 /* c8 ignore stop */

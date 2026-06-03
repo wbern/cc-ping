@@ -28,6 +28,7 @@ interface ServiceStatus {
   installed: boolean;
   servicePath?: string;
   platform: string;
+  watchdogInstalled?: boolean;
 }
 
 // --- Dependencies ---
@@ -49,6 +50,12 @@ export interface ServiceDeps {
 
 const PLIST_LABEL = "com.cc-ping.daemon";
 const SYSTEMD_SERVICE = "cc-ping-daemon";
+const WATCHDOG_PLIST_LABEL = "com.cc-ping.watchdog";
+const WATCHDOG_SYSTEMD_UNIT = "cc-ping-watchdog";
+
+// How often the external watchdog checks the daemon's heartbeat. Recovery
+// latency is bounded by this plus the heartbeat staleness threshold.
+const WATCHDOG_INTERVAL_SEC = 120;
 
 export function resolveExecutable(deps: {
   execSync: (cmd: string, options?: object) => string;
@@ -147,6 +154,67 @@ ${argsXml}
 `;
 }
 
+export function generateWatchdogPlist(
+  execInfo: ExecInfo,
+  configDir?: string,
+  path?: string,
+): string {
+  const allArgs = [
+    execInfo.executable,
+    ...execInfo.args,
+    "daemon",
+    "_healthcheck",
+  ];
+  const argsXml = allArgs
+    .map((a) => `      <string>${escapeXml(a)}</string>`)
+    .join("\n");
+
+  const logPath = join(
+    configDir || join(nodeHomedir(), ".config", "cc-ping"),
+    "watchdog.log",
+  );
+
+  const envVars: Record<string, string> = {};
+  if (configDir) envVars.CC_PING_CONFIG = configDir;
+  if (execInfo.args.length === 0) envVars.CC_PING_BIN = execInfo.executable;
+  if (path) envVars.PATH = path;
+
+  let envSection = "";
+  if (Object.keys(envVars).length > 0) {
+    const entries = Object.entries(envVars)
+      .map(
+        ([k, v]) =>
+          `      <key>${escapeXml(k)}</key>\n      <string>${escapeXml(v)}</string>`,
+      )
+      .join("\n");
+    envSection = `
+    <key>EnvironmentVariables</key>
+    <dict>
+${entries}
+    </dict>`;
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${WATCHDOG_PLIST_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+${argsXml}
+    </array>
+    <key>StartInterval</key>
+    <integer>${WATCHDOG_INTERVAL_SEC}</integer>
+    <key>StandardOutPath</key>
+    <string>${escapeXml(logPath)}</string>
+    <key>StandardErrorPath</key>
+    <string>${escapeXml(logPath)}</string>${envSection}
+</dict>
+</plist>
+`;
+}
+
 export function generateSystemdUnit(
   options: ServiceOptions,
   execInfo: ExecInfo,
@@ -193,6 +261,49 @@ WantedBy=default.target
 `;
 }
 
+export function generateWatchdogSystemd(
+  execInfo: ExecInfo,
+  configDir?: string,
+  path?: string,
+): { service: string; timer: string } {
+  const execStart = [
+    execInfo.executable,
+    ...execInfo.args,
+    "daemon",
+    "_healthcheck",
+  ]
+    .map((a) => (a.includes(" ") ? `"${a}"` : a))
+    .join(" ");
+
+  const envPairs: string[] = [];
+  if (configDir) envPairs.push(`CC_PING_CONFIG=${configDir}`);
+  if (execInfo.args.length === 0)
+    envPairs.push(`CC_PING_BIN=${execInfo.executable}`);
+  if (path) envPairs.push(`PATH=${path}`);
+  const envLine = envPairs.map((p) => `\nEnvironment=${p}`).join("");
+
+  const service = `[Unit]
+Description=cc-ping watchdog - recover a wedged daemon
+
+[Service]
+Type=oneshot
+ExecStart=${execStart}${envLine}
+`;
+
+  const timer = `[Unit]
+Description=cc-ping watchdog timer
+
+[Timer]
+OnBootSec=${WATCHDOG_INTERVAL_SEC}
+OnUnitActiveSec=${WATCHDOG_INTERVAL_SEC}
+
+[Install]
+WantedBy=timers.target
+`;
+
+  return { service, timer };
+}
+
 export function servicePath(platform: string, home: string): string {
   switch (platform) {
     case "darwin":
@@ -204,6 +315,33 @@ export function servicePath(platform: string, home: string): string {
         "systemd",
         "user",
         `${SYSTEMD_SERVICE}.service`,
+      );
+    default:
+      throw new Error(
+        `Unsupported platform: ${platform}. Only macOS and Linux are supported.`,
+      );
+  }
+}
+
+// The path whose presence signals the watchdog is installed: the launchd agent
+// on darwin, the systemd timer on linux. The linux .service unit lives beside
+// the timer in the same directory.
+export function watchdogServicePath(platform: string, home: string): string {
+  switch (platform) {
+    case "darwin":
+      return join(
+        home,
+        "Library",
+        "LaunchAgents",
+        `${WATCHDOG_PLIST_LABEL}.plist`,
+      );
+    case "linux":
+      return join(
+        home,
+        ".config",
+        "systemd",
+        "user",
+        `${WATCHDOG_SYSTEMD_UNIT}.timer`,
       );
     default:
       throw new Error(
@@ -280,12 +418,36 @@ export async function installService(
   _mkdirSync(dirname(path), { recursive: true });
   _writeFileSync(path, content);
 
+  // Watchdog units: a separate periodic check that recovers a wedged daemon.
+  // Written after the main unit so callers inspecting the first write still see
+  // the daemon service.
+  const watchdogPath = watchdogServicePath(_platform, home);
+  if (_platform === "darwin") {
+    _writeFileSync(
+      watchdogPath,
+      generateWatchdogPlist(execInfo, configDir, envPath),
+    );
+  } else {
+    const { service, timer } = generateWatchdogSystemd(
+      execInfo,
+      configDir,
+      envPath,
+    );
+    _writeFileSync(
+      join(dirname(watchdogPath), `${WATCHDOG_SYSTEMD_UNIT}.service`),
+      service,
+    );
+    _writeFileSync(watchdogPath, timer);
+  }
+
   try {
     if (_platform === "darwin") {
       _execSync(`launchctl load "${path}"`);
+      _execSync(`launchctl load "${watchdogPath}"`);
     } else {
       _execSync("systemctl --user daemon-reload");
       _execSync(`systemctl --user enable --now ${SYSTEMD_SERVICE}`);
+      _execSync(`systemctl --user enable --now ${WATCHDOG_SYSTEMD_UNIT}.timer`);
     }
   } catch (err) {
     return {
@@ -340,6 +502,31 @@ export async function uninstallService(
   }
 
   _unlinkSync(path);
+
+  // Remove the watchdog units too. Best-effort and existence-guarded: a daemon
+  // installed before the watchdog existed won't have these files.
+  const watchdogPath = watchdogServicePath(_platform, home);
+  try {
+    if (_platform === "darwin") {
+      _execSync(`launchctl unload "${watchdogPath}"`);
+    } else {
+      _execSync(
+        `systemctl --user disable --now ${WATCHDOG_SYSTEMD_UNIT}.timer`,
+      );
+    }
+  } catch {
+    // not loaded — fine
+  }
+  const watchdogFiles =
+    _platform === "darwin"
+      ? [watchdogPath]
+      : [
+          watchdogPath,
+          join(dirname(watchdogPath), `${WATCHDOG_SYSTEMD_UNIT}.service`),
+        ];
+  for (const file of watchdogFiles) {
+    if (_existsSync(file)) _unlinkSync(file);
+  }
 
   return { success: true, servicePath: path };
 }
@@ -463,6 +650,7 @@ export function getServiceStatus(deps?: Partial<ServiceDeps>): ServiceStatus {
     installed: _existsSync(path),
     servicePath: path,
     platform: _platform,
+    watchdogInstalled: _existsSync(watchdogServicePath(_platform, home)),
   };
 }
 

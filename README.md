@@ -234,6 +234,7 @@ The daemon is smart about what it pings:
 - **Singleton enforcement** — only one daemon runs at a time, verified by PID and process name
 - **Graceful shutdown** — `daemon stop` writes a sentinel file and waits up to 60s for a clean exit before force-killing
 - **Auto-restart on upgrade** — after upgrading cc-ping, the daemon detects the binary has changed and exits so the service manager can restart it with the new version. `daemon status` warns if the running daemon is outdated
+- **Self-healing** — the daemon emits a heartbeat while idle; an installed [watchdog](#watchdog-self-healing) restarts it if the heartbeat goes stale (e.g. an event-loop stall after laptop sleep/wake)
 
 Logs are written to `~/.config/cc-ping/daemon.log`.
 
@@ -294,6 +295,19 @@ cc-ping daemon uninstall                           # remove service and stop
 The service restarts the daemon on crash (but not on clean exit via `daemon stop`). No `sudo` required — both use user-level service managers.
 
 **`daemon stop` vs `daemon uninstall`:** When a service is installed, `daemon stop` kills the process but the service manager may restart it on crash. Use `daemon uninstall` to fully remove the service, or `daemon stop` if you just need a temporary pause.
+
+### Watchdog (self-healing)
+
+`daemon install` also registers a lightweight **watchdog** that runs every two minutes as a separate, short-lived process. It exists to recover from a rare failure mode where the runtime's event loop wedges and pegs a CPU core — most often after a laptop sleeps/wakes at low battery (a [Bun](https://github.com/oven-sh/bun/issues/27766) / [libuv](https://github.com/libuv/libuv/issues/2891) clock-desync bug). When the loop wedges, timers stop firing, so the daemon can't recover itself — but it also stops refreshing its heartbeat file, which is exactly what the watchdog keys off.
+
+| Platform | Mechanism | Files |
+|----------|-----------|-------|
+| macOS | launchd `StartInterval` agent | `~/Library/LaunchAgents/com.cc-ping.watchdog.plist` |
+| Linux | systemd `.timer` + oneshot `.service` | `~/.config/systemd/user/cc-ping-watchdog.{timer,service}` |
+
+The check is deliberately conservative: it force-restarts the daemon **only** when a recorded daemon process is alive *and* its heartbeat is more than three minutes stale. A missing heartbeat (a daemon that predates this feature, or one that just restarted) is treated as healthy and left alone. Worst case is a single harmless restart; it can never leave the daemon hung. Watchdog activity is logged to `~/.config/cc-ping/watchdog.log`.
+
+> **Upgrading from an earlier version?** The watchdog is added by `daemon install`. After upgrading, re-run `cc-ping daemon install` (or `uninstall` then `install`) to register it — `daemon status` will remind you if it's missing. The daemon binary upgrades and runs fine without it; you just don't get automatic recovery until the watchdog is installed.
 
 ## Notifications
 

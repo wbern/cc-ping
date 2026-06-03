@@ -38,6 +38,8 @@ const {
   rotateLogFile,
   formatDrift,
   createWatchdog,
+  daemonHeartbeatPath,
+  startHeartbeat,
 } = await import("./daemon.js");
 const { QUOTA_WINDOW_MS } = await import("./state.js");
 
@@ -72,6 +74,10 @@ describe("daemon", () => {
 
     it("returns daemon.stop path", () => {
       expect(daemonStopPath()).toBe(join(configDir, "daemon.stop"));
+    });
+
+    it("returns daemon.heartbeat path", () => {
+      expect(daemonHeartbeatPath()).toBe(join(configDir, "daemon.heartbeat"));
     });
   });
 
@@ -208,6 +214,33 @@ describe("daemon", () => {
       vi.setSystemTime(start + 60_000);
       vi.advanceTimersByTime(10_000);
       expect(onOvershoot).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("startHeartbeat", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("writes a heartbeat immediately and on each interval until stopped", () => {
+      vi.useFakeTimers();
+      const write = vi.fn();
+      const hb = startHeartbeat({ write, intervalMs: 30_000 });
+      expect(write).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(90_000);
+      expect(write).toHaveBeenCalledTimes(4);
+      hb.stop();
+      vi.advanceTimersByTime(90_000);
+      expect(write).toHaveBeenCalledTimes(4);
+    });
+
+    it("writes the heartbeat file to the config dir on the default interval", () => {
+      vi.useFakeTimers();
+      const hb = startHeartbeat();
+      expect(existsSync(daemonHeartbeatPath())).toBe(true);
+      const first = readFileSync(daemonHeartbeatPath(), "utf-8");
+      expect(first).toContain("T");
+      hb.stop();
     });
   });
 
