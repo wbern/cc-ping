@@ -242,6 +242,21 @@ describe("daemon", () => {
       expect(first).toContain("T");
       hb.stop();
     });
+
+    it("survives a write that throws, on both the initial call and later ticks", () => {
+      vi.useFakeTimers();
+      let calls = 0;
+      const write = vi.fn(() => {
+        calls++;
+        if (calls === 1 || calls === 2) throw new Error("ENOSPC");
+      });
+      // A transient fs failure must never propagate — a missed beat is fine, and
+      // an uncaught throw here would exit the daemon the heartbeat is protecting.
+      const hb = startHeartbeat({ write, intervalMs: 30_000 });
+      expect(() => vi.advanceTimersByTime(60_000)).not.toThrow();
+      expect(write).toHaveBeenCalledTimes(3);
+      hb.stop();
+    });
   });
 
   describe("formatDrift", () => {

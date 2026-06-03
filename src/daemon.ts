@@ -78,8 +78,19 @@ export function startHeartbeat(deps?: {
     (() =>
       writeFileSync(daemonHeartbeatPath(), `${new Date().toISOString()}\n`));
   const intervalMs = deps?.intervalMs ?? HEARTBEAT_INTERVAL_MS;
-  write();
-  const timer = setInterval(write, intervalMs);
+  // Never let a transient fs failure escape: an uncaught throw here (or in the
+  // interval callback) would exit the very daemon the heartbeat protects. A
+  // single missed beat is harmless — the watchdog's staleness threshold is many
+  // beats wide, and the next tick recovers.
+  const beat = () => {
+    try {
+      write();
+    } catch {
+      // missed beat — fine
+    }
+  };
+  beat();
+  const timer = setInterval(beat, intervalMs);
   timer.unref?.();
   return { stop: () => clearInterval(timer) };
 }
