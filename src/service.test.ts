@@ -547,6 +547,80 @@ describe("service", () => {
       expect(result.error).toContain("daemon uninstall");
     });
 
+    it("adds the watchdog in place when the daemon exists without it, leaving the daemon unit untouched", async () => {
+      const writeFileSync = vi.fn();
+      const execSync = vi.fn().mockReturnValue("/usr/local/bin/cc-ping\n");
+      // Daemon plist present, watchdog plist absent — the upgrade scenario.
+      const deps = makeDeps({
+        platform: "darwin",
+        existsSync: (p: string) => !p.includes("watchdog"),
+        writeFileSync,
+        execSync,
+      });
+
+      const result = await installService({}, deps);
+
+      expect(result.success).toBe(true);
+      // Watchdog is written and loaded...
+      expect(writeFileSync).toHaveBeenCalledWith(
+        expect.stringContaining("com.cc-ping.watchdog.plist"),
+        expect.stringContaining("_healthcheck"),
+      );
+      expect(execSync).toHaveBeenCalledWith(
+        expect.stringContaining("com.cc-ping.watchdog.plist"),
+      );
+      // ...but the existing daemon unit (and its flags) is never rewritten.
+      expect(writeFileSync).not.toHaveBeenCalledWith(
+        expect.stringContaining("com.cc-ping.daemon.plist"),
+        expect.anything(),
+      );
+    });
+
+    it("adds the watchdog timer in place on linux when the daemon exists without it", async () => {
+      const writeFileSync = vi.fn();
+      const execSync = vi.fn().mockReturnValue("/usr/local/bin/cc-ping\n");
+      const deps = makeDeps({
+        platform: "linux",
+        existsSync: (p: string) => !p.includes("watchdog"),
+        writeFileSync,
+        execSync,
+      });
+
+      const result = await installService({}, deps);
+
+      expect(result.success).toBe(true);
+      expect(writeFileSync).toHaveBeenCalledWith(
+        expect.stringContaining("cc-ping-watchdog.timer"),
+        expect.stringContaining("[Timer]"),
+      );
+      expect(execSync).toHaveBeenCalledWith(
+        "systemctl --user enable --now cc-ping-watchdog.timer",
+      );
+      expect(writeFileSync).not.toHaveBeenCalledWith(
+        expect.stringContaining("cc-ping-daemon.service"),
+        expect.anything(),
+      );
+    });
+
+    it("reports an error if the in-place watchdog fails to load", async () => {
+      const execSync = vi.fn((cmd: string) => {
+        if (cmd.includes("watchdog")) throw new Error("load: boom");
+        return "/usr/local/bin/cc-ping\n";
+      });
+      const deps = makeDeps({
+        platform: "darwin",
+        existsSync: (p: string) => !p.includes("watchdog"),
+        execSync,
+      });
+
+      const result = await installService({}, deps);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain(
+        "Watchdog file written but failed to load",
+      );
+    });
+
     it("stops running daemon before installing", async () => {
       const stopDaemon = vi.fn().mockResolvedValue({ success: true });
       const deps = makeDeps({ stopDaemon });

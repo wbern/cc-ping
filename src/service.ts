@@ -350,6 +350,36 @@ export function watchdogServicePath(platform: string, home: string): string {
   }
 }
 
+// Writes the watchdog unit file(s): one launchd plist on darwin, a oneshot
+// service plus its timer on linux. Loading them is left to the caller, which
+// differs between a fresh install and an in-place top-up.
+function writeWatchdogUnits(
+  writeFileSync: (path: string, content: string) => void,
+  platform: string,
+  watchdogPath: string,
+  execInfo: ExecInfo,
+  configDir: string | undefined,
+  envPath: string | undefined,
+): void {
+  if (platform === "darwin") {
+    writeFileSync(
+      watchdogPath,
+      generateWatchdogPlist(execInfo, configDir, envPath),
+    );
+  } else {
+    const { service, timer } = generateWatchdogSystemd(
+      execInfo,
+      configDir,
+      envPath,
+    );
+    writeFileSync(
+      join(dirname(watchdogPath), `${WATCHDOG_SYSTEMD_UNIT}.service`),
+      service,
+    );
+    writeFileSync(watchdogPath, timer);
+  }
+}
+
 // --- Orchestration functions ---
 
 export async function installService(
@@ -386,12 +416,54 @@ export async function installService(
     };
   }
 
+  const watchdogPath = watchdogServicePath(_platform, home);
+
   if (_existsSync(path)) {
-    return {
-      success: false,
-      servicePath: path,
-      error: `Service already installed at ${path}. Run \`daemon uninstall\` first.`,
-    };
+    // The daemon is already installed. If the watchdog unit is missing — e.g.
+    // upgrading from a version that predates it — add just the watchdog in
+    // place. This leaves the daemon unit (and its flags) untouched, so an
+    // upgrade is a single `daemon install` instead of uninstall-then-reinstall.
+    if (_existsSync(watchdogPath)) {
+      return {
+        success: false,
+        servicePath: path,
+        error: `Service already installed at ${path}. Run \`daemon uninstall\` first.`,
+      };
+    }
+
+    const execInfo = resolveExecutable({ execSync: _execSync });
+    const configDir = _configDir || undefined;
+    const envPath = deps?.envPath ?? process.env.PATH;
+    // No mkdir needed: the watchdog unit is co-located with the daemon unit
+    // (same LaunchAgents / systemd-user dir), and we only reach here because the
+    // daemon unit exists — so its directory does too.
+    writeWatchdogUnits(
+      _writeFileSync,
+      _platform,
+      watchdogPath,
+      execInfo,
+      configDir,
+      envPath,
+    );
+
+    try {
+      if (_platform === "darwin") {
+        _execSync(`launchctl load "${watchdogPath}"`);
+      } else {
+        _execSync("systemctl --user daemon-reload");
+        _execSync(
+          `systemctl --user enable --now ${WATCHDOG_SYSTEMD_UNIT}.timer`,
+        );
+      }
+    } catch (err) {
+      return {
+        success: false,
+        servicePath: path,
+        error: `Watchdog file written but failed to load: ${(err as Error).message}`,
+      };
+    }
+
+    return { success: true, servicePath: path };
   }
 
   // Stop any running daemon (ignore errors)
@@ -421,24 +493,14 @@ export async function installService(
   // Watchdog units: a separate periodic check that recovers a wedged daemon.
   // Written after the main unit so callers inspecting the first write still see
   // the daemon service.
-  const watchdogPath = watchdogServicePath(_platform, home);
-  if (_platform === "darwin") {
-    _writeFileSync(
-      watchdogPath,
-      generateWatchdogPlist(execInfo, configDir, envPath),
-    );
-  } else {
-    const { service, timer } = generateWatchdogSystemd(
-      execInfo,
-      configDir,
-      envPath,
-    );
-    _writeFileSync(
-      join(dirname(watchdogPath), `${WATCHDOG_SYSTEMD_UNIT}.service`),
-      service,
-    );
-    _writeFileSync(watchdogPath, timer);
-  }
+  writeWatchdogUnits(
+    _writeFileSync,
+    _platform,
+    watchdogPath,
+    execInfo,
+    configDir,
+    envPath,
+  );
 
   try {
     if (_platform === "darwin") {
