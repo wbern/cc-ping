@@ -1,8 +1,26 @@
-import { describe, expect, it } from "vitest";
+import { type ChildProcess, spawn } from "node:child_process";
+import {
+  existsSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  daemonHeartbeatPath,
+  isProcessRunning,
+  readDaemonState,
+  writeDaemonState,
+} from "./daemon.js";
 import {
   DEFAULT_HEARTBEAT_STALE_MS,
   readHeartbeatAge,
   runHealthcheck,
+  runHealthcheckWithDefaults,
 } from "./watchdog.js";
 
 describe("runHealthcheck", () => {
@@ -142,5 +160,148 @@ describe("readHeartbeatAge", () => {
       now: () => 1_200_000,
     });
     expect(age).toBeNull();
+  });
+});
+
+// These exercise the real filesystem path that production uses
+// (statSync(...).mtimeMs) rather than a mocked mtime, proving a freshly
+// written heartbeat reads as healthy and a backdated one drives a restart.
+describe("heartbeat staleness against the real filesystem", () => {
+  let dir: string;
+  let beat: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "cc-ping-watchdog-"));
+    beat = join(dir, "daemon.heartbeat");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const realAge = () =>
+    readHeartbeatAge({
+      path: () => beat,
+      mtimeMs: (p) => statSync(p).mtimeMs,
+      now: () => Date.now(),
+    });
+
+  it("reads a just-written heartbeat as fresh, below the stale threshold", () => {
+    writeFileSync(beat, `${new Date().toISOString()}\n`);
+    const age = realAge();
+    expect(age).not.toBeNull();
+    expect(age as number).toBeLessThan(DEFAULT_HEARTBEAT_STALE_MS);
+  });
+
+  it("force-restarts a live daemon once a backdated heartbeat reads as stale", () => {
+    writeFileSync(beat, `${new Date().toISOString()}\n`);
+    const past = (Date.now() - 10 * 60 * 1000) / 1000;
+    utimesSync(beat, past, past);
+
+    const age = realAge();
+    expect(age as number).toBeGreaterThan(DEFAULT_HEARTBEAT_STALE_MS);
+
+    const killed: number[] = [];
+    const cleared: boolean[] = [];
+    const result = runHealthcheck({
+      readState: () => ({
+        pid: 4242,
+        startedAt: "2026-06-02T05:56:27.000Z",
+        intervalMs: 18_000_000,
+        configDir: dir,
+      }),
+      isRunning: () => true,
+      heartbeatAgeMs: realAge,
+      kill: (pid) => killed.push(pid),
+      clearState: () => cleared.push(true),
+      log: () => {},
+    });
+
+    expect(result).toBe("restarted");
+    expect(killed).toEqual([4242]);
+    expect(cleared).toEqual([true]);
+  });
+
+  it("reads a missing heartbeat file as null", () => {
+    expect(realAge()).toBeNull();
+  });
+});
+
+// Drives the real production entry point end to end: a real live process whose
+// heartbeat has gone stale is force-killed with SIGKILL and its state files are
+// cleared — everything the launchd/systemd watchdog relies on, minus the
+// service manager's relaunch.
+describe("runHealthcheckWithDefaults against a real wedged process", () => {
+  let dir: string;
+  let child: ChildProcess | undefined;
+  const prevConfig = process.env.CC_PING_CONFIG;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "cc-ping-recover-"));
+    process.env.CC_PING_CONFIG = dir;
+  });
+
+  afterEach(() => {
+    if (child && child.exitCode === null && child.pid)
+      try {
+        process.kill(child.pid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    child = undefined;
+    if (prevConfig === undefined) delete process.env.CC_PING_CONFIG;
+    else process.env.CC_PING_CONFIG = prevConfig;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const exited = (proc: ChildProcess) =>
+    new Promise<void>((resolve) => {
+      if (proc.exitCode !== null || proc.signalCode !== null) return resolve();
+      proc.on("exit", () => resolve());
+    });
+
+  it("force-kills the recorded pid and clears the state and heartbeat files", async () => {
+    child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1e9)"]);
+    const pid = child.pid as number;
+    expect(isProcessRunning(pid)).toBe(true);
+
+    writeDaemonState({
+      pid,
+      startedAt: "2026-06-02T05:56:27.000Z",
+      intervalMs: 18_000_000,
+      configDir: dir,
+    });
+    writeFileSync(daemonHeartbeatPath(), `${new Date().toISOString()}\n`);
+    const past = (Date.now() - 10 * 60 * 1000) / 1000;
+    utimesSync(daemonHeartbeatPath(), past, past);
+
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const result = runHealthcheckWithDefaults();
+    log.mockRestore();
+
+    expect(result).toBe("restarted");
+    await exited(child);
+    expect(isProcessRunning(pid)).toBe(false);
+    expect(readDaemonState()).toBeNull();
+    expect(existsSync(daemonHeartbeatPath())).toBe(false);
+  });
+
+  it("leaves a healthy process with a fresh heartbeat running", () => {
+    child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1e9)"]);
+    const pid = child.pid as number;
+
+    writeDaemonState({
+      pid,
+      startedAt: "2026-06-02T05:56:27.000Z",
+      intervalMs: 18_000_000,
+      configDir: dir,
+    });
+    writeFileSync(daemonHeartbeatPath(), `${new Date().toISOString()}\n`);
+
+    const result = runHealthcheckWithDefaults();
+
+    expect(result).toBe("healthy");
+    expect(isProcessRunning(pid)).toBe(true);
+    expect(readDaemonState()).not.toBeNull();
   });
 });
