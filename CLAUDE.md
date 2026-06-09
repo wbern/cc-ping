@@ -36,6 +36,7 @@ If knip or coverage fails, the commit is rejected. Fix the issue and create a ne
 - Single instance enforced via PID file + process name check
 - Retries only failed accounts once before sleeping
 - After retry exhaustion with failures still pending, the next sleep is capped at 15min (vs the full interval) so transient outages recover within minutes. The cap is single-use: it applies only to the sleep immediately after a failed iteration and is reset at the start of the next loop, so a recovered or no-op iteration goes back to the full interval
+- Rate-limit-aware backoff: if EVERY pending failure is a rate limit (HTTP 429) with a known reset time parsed from the body (`rate-limit.ts`), the post-failure sleep is set to "time until soonest reset + 60s buffer" instead of the 15min cap — a 429 won't clear before then, so retrying sooner just wastes pings. A mixed iteration (any non-rate-limit failure pending) keeps the 15min cap so transient outages still recover fast. `runPing` returns `rateLimitResets` (handle→ISO) to feed this
 - Detects system sleep via timer overshoot (>60s late)
 - Graceful stop: sentinel file polled every 500ms for up to 60s, then SIGTERM
 

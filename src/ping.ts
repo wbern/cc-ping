@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import { parseClaudeResponse } from "./parse.js";
 import { generatePrompt } from "./prompt.js";
+import { parseRateLimitReset } from "./rate-limit.js";
 import type { AccountConfig, ClaudeJsonResponse, PingResult } from "./types.js";
 
 // A logged-out or expired session does not come back as an HTTP 401. Claude
@@ -26,7 +27,10 @@ function describeClaudeError(
   if (status !== undefined) {
     if (status === 402) return "billing issue";
     if (status === 403) return "permission denied";
-    if (status === 429) return "rate limited";
+    if (status === 429) {
+      const info = parseRateLimitReset(response.result, new Date());
+      return info ? `rate limited (resets ${info.resetLabel})` : "rate limited";
+    }
     if (status >= 500) return `server error (${status})`;
     return `HTTP ${status}`;
   }
@@ -106,12 +110,20 @@ function pingOne(
           errorMsg = describeClaudeError(claudeResponse, account.handle);
         }
 
+        // Surface the reset instant separately so the daemon can schedule its
+        // next attempt for when the limit actually lifts.
+        const rateLimitResetAt =
+          claudeResponse?.api_error_status === 429
+            ? parseRateLimitReset(claudeResponse.result, new Date())?.resetAt
+            : undefined;
+
         resolve({
           handle: account.handle,
           success: !error && !isError,
           durationMs: Date.now() - start,
           error: errorMsg,
           claudeResponse,
+          rateLimitResetAt,
         });
       },
     );

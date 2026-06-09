@@ -652,7 +652,9 @@ notify
     if (!remote?.url) {
       console.log("Remote notifications: not configured");
     } else {
-      const events = remote.events ? remote.events.join(", ") : "all";
+      const events = remote.events
+        ? remote.events.join(", ")
+        : "failure, new-window (rate-limited off by default)";
       console.log(`Remote notifications: configured (events: ${events})`);
     }
     const command = getNotifyCommand();

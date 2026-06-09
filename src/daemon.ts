@@ -115,6 +115,12 @@ const WAKE_SETTLE_MS = 20_000;
 // the daemon recovers within minutes instead of waiting a full quota window.
 const POST_FAILURE_SLEEP_MS = 15 * 60 * 1000;
 
+// When every pending failure is a rate limit with a known reset time, wake just
+// after the soonest reset rather than hammering on the 15-min cap. The small
+// buffer absorbs clock skew between us and the server so we don't wake a beat
+// early and immediately re-trip the same limit.
+const RATE_LIMIT_RESET_BUFFER_MS = 60 * 1000;
+
 interface Watchdog {
   stop(): void;
 }
@@ -392,6 +398,7 @@ interface DaemonLoopDeps {
   ) => Promise<{
     failedHandles: string[];
     failureReasons?: Record<string, string>;
+    rateLimitResets?: Record<string, string>;
   }>;
   listAccounts: () => AccountConfig[];
   sleep: (ms: number) => Promise<void>;
@@ -538,10 +545,11 @@ export async function daemonLoop(
           wd.stop();
         }
       };
-      const { failedHandles, aborted: firstAborted } = await runGuarded(
-        accounts,
-        true,
-      );
+      const {
+        failedHandles,
+        aborted: firstAborted,
+        rateLimitResets: firstResets,
+      } = await runGuarded(accounts, true);
       if (deps.getOptimalHour) {
         /* c8 ignore next -- production default */
         const now = deps.now?.() ?? new Date();
@@ -562,6 +570,9 @@ export async function daemonLoop(
       const RETRY_BACKOFF_MULTIPLIER = 3;
       let pendingFailed = failedHandles;
       let prevAborted = firstAborted;
+      // Reset times for the accounts still failing. Each attempt only re-pings
+      // the pending set, so the latest attempt's map is authoritative for it.
+      let pendingResets = firstResets ?? {};
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         if (pendingFailed.length === 0 || deps.shouldStop()) break;
         const retryAccounts = accounts.filter((a) =>
@@ -578,6 +589,7 @@ export async function daemonLoop(
         const retry = await runGuarded(retryAccounts, !isLast);
         pendingFailed = retry.failedHandles;
         prevAborted = retry.aborted;
+        pendingResets = retry.rateLimitResets ?? {};
         if (isLast && retry.failedHandles.length > 0) {
           const reasons = retry.failureReasons;
           const summary = retry.failedHandles
@@ -590,7 +602,23 @@ export async function daemonLoop(
         }
       }
       if (pendingFailed.length > 0) {
-        postFailureSleepCap = POST_FAILURE_SLEEP_MS;
+        // If every pending failure is a rate limit with a known reset, sleep
+        // until the soonest reset (a 429 won't clear before then, so retrying
+        // sooner just wastes pings and notifications). Otherwise fall back to
+        // the short cap so transient outages recover within minutes.
+        const allRateLimited = pendingFailed.every((h) => pendingResets[h]);
+        if (allRateLimited) {
+          /* c8 ignore next -- production default */
+          const nowMs = (deps.now?.() ?? new Date()).getTime();
+          const soonest = Math.min(
+            ...pendingFailed.map((h) => new Date(pendingResets[h]).getTime()),
+          );
+          const untilReset = soonest - nowMs + RATE_LIMIT_RESET_BUFFER_MS;
+          postFailureSleepCap =
+            untilReset > 0 ? untilReset : POST_FAILURE_SLEEP_MS;
+        } else {
+          postFailureSleepCap = POST_FAILURE_SLEEP_MS;
+        }
       }
       deps.updateState?.({ lastPingAt: new Date().toISOString() });
     }

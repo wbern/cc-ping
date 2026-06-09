@@ -1020,6 +1020,99 @@ describe("daemon", () => {
       expect(longSleeps[1]).toBe(FIVE_HOURS);
     });
 
+    const FIFTEEN_MIN = 15 * 60 * 1000;
+    const RESET_BUFFER_MS = 60 * 1000;
+    const postIterationSleep = (deps: {
+      sleep: { mock: { calls: number[][] } };
+    }) =>
+      deps.sleep.mock.calls
+        .map((c) => c[0] as number)
+        .filter((ms) => ms !== 5_000 && ms !== 15_000)[0];
+
+    it("sleeps until the rate-limit reset, not the 15-min cap, when all failures are rate-limited", async () => {
+      let calls = 0;
+      const now = new Date(2026, 5, 9, 14, 0, 0); // 2pm local
+      const resetAt = new Date(2026, 5, 9, 16, 0, 0); // 4pm → 2h ahead
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({
+          failedHandles: ["alice"],
+          rateLimitResets: { alice: resetAt.toISOString() },
+        }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          calls++;
+          return calls > 4;
+        }),
+        log: vi.fn(),
+        createWatchdog: () => ({ stop: vi.fn() }),
+        now: () => now,
+      };
+
+      await daemonLoop(5 * 60 * 60 * 1000, {}, deps);
+
+      const TWO_HOURS = 2 * 60 * 60 * 1000;
+      expect(postIterationSleep(deps)).toBe(TWO_HOURS + RESET_BUFFER_MS);
+    });
+
+    it("keeps the 15-min cap when a non-rate-limit failure is also pending", async () => {
+      let calls = 0;
+      const now = new Date(2026, 5, 9, 14, 0, 0);
+      const resetAt = new Date(2026, 5, 9, 16, 0, 0);
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({
+          failedHandles: ["alice", "bob"],
+          rateLimitResets: { alice: resetAt.toISOString() },
+        }),
+        listAccounts: vi.fn().mockReturnValue([
+          { handle: "alice", configDir: "/tmp/alice" },
+          { handle: "bob", configDir: "/tmp/bob" },
+        ]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          calls++;
+          return calls > 4;
+        }),
+        log: vi.fn(),
+        createWatchdog: () => ({ stop: vi.fn() }),
+        now: () => now,
+      };
+
+      await daemonLoop(5 * 60 * 60 * 1000, {}, deps);
+
+      // bob has no known reset → recover fast via the 15-min cap.
+      expect(postIterationSleep(deps)).toBe(FIFTEEN_MIN);
+    });
+
+    it("falls back to the 15-min cap when the rate-limit reset already passed", async () => {
+      let calls = 0;
+      const now = new Date(2026, 5, 9, 14, 0, 0); // 2pm
+      const resetAt = new Date(2026, 5, 9, 13, 0, 0); // 1pm → already gone
+      const deps = {
+        runPing: vi.fn().mockResolvedValue({
+          failedHandles: ["alice"],
+          rateLimitResets: { alice: resetAt.toISOString() },
+        }),
+        listAccounts: vi
+          .fn()
+          .mockReturnValue([{ handle: "alice", configDir: "/tmp/alice" }]),
+        sleep: vi.fn().mockResolvedValue(undefined),
+        shouldStop: vi.fn(() => {
+          calls++;
+          return calls > 4;
+        }),
+        log: vi.fn(),
+        createWatchdog: () => ({ stop: vi.fn() }),
+        now: () => now,
+      };
+
+      await daemonLoop(5 * 60 * 60 * 1000, {}, deps);
+
+      expect(postIterationSleep(deps)).toBe(FIFTEEN_MIN);
+    });
+
     it("sleeps for interval between pings", async () => {
       let calls = 0;
       const deps = {

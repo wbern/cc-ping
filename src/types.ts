@@ -39,9 +39,13 @@ export interface PingResult {
   durationMs: number;
   error?: string;
   claudeResponse?: ClaudeJsonResponse;
+  // When the failure was a rate limit (HTTP 429) and the body named a reset
+  // time, the absolute instant that limit lifts (host-local). Drives the
+  // daemon's sleep-until-reset scheduling.
+  rateLimitResetAt?: Date;
 }
 
-export type RemoteNotifyEvent = "failure" | "new-window";
+export type RemoteNotifyEvent = "failure" | "new-window" | "rate-limited";
 
 export interface RemoteNotifyConfig {
   url: string;

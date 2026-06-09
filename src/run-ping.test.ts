@@ -1014,4 +1014,148 @@ describe("runPing", () => {
 
     expect(sendCommand).not.toHaveBeenCalled();
   });
+
+  // --- Rate-limit notifications ---
+  //
+  // A rate limit is expected, self-resolving, and (when a daemon retries) noisy.
+  // It is split off from the generic "failure" event into its own "rate-limited"
+  // event that is OFF by default — so a rate-limited account does not buzz any
+  // channel unless the user opts in.
+
+  const rateLimitedResult = (resetAt: Date) => ({
+    handle: "alice",
+    success: false,
+    durationMs: 100,
+    error: "rate limited (resets 9pm)",
+    claudeResponse: apiError(429),
+    rateLimitResetAt: resetAt,
+  });
+
+  it("does not fire any failure notification for a rate-limited account by default", async () => {
+    mockPingAccounts.mockResolvedValue([
+      rateLimitedResult(new Date(2026, 5, 9, 21)),
+    ]);
+    const sendRemote = vi.fn().mockResolvedValue(true);
+    const sendCommand = vi.fn().mockResolvedValue(true);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      notify: true,
+      remoteNotify: { url: "https://ntfy.sh/secret" },
+      _sendRemote: sendRemote,
+      notifyCommand: ["alert"],
+      _sendCommand: sendCommand,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(sendRemote).not.toHaveBeenCalled();
+    expect(sendCommand).not.toHaveBeenCalled();
+    expect(mockSendNotification).not.toHaveBeenCalled();
+  });
+
+  it("fires a rate-limited remote notification when opted in via events", async () => {
+    mockPingAccounts.mockResolvedValue([
+      rateLimitedResult(new Date(2026, 5, 9, 21)),
+    ]);
+    const sendRemote = vi.fn().mockResolvedValue(true);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      remoteNotify: {
+        url: "https://ntfy.sh/secret",
+        events: ["rate-limited"],
+      },
+      _sendRemote: sendRemote,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(sendRemote).toHaveBeenCalledWith(
+      "https://ntfy.sh/secret",
+      {
+        title: "cc-ping: rate limited",
+        body: "alice: rate limited (resets 9pm)",
+        priority: "default",
+      },
+      expect.objectContaining({ log: expect.any(Function) }),
+    );
+  });
+
+  it("falls back to a bare 'rate limited' body when the error string is absent", async () => {
+    mockPingAccounts.mockResolvedValue([
+      {
+        handle: "alice",
+        success: false,
+        durationMs: 100,
+        claudeResponse: apiError(429),
+      },
+    ]);
+    const sendRemote = vi.fn().mockResolvedValue(true);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      remoteNotify: {
+        url: "https://ntfy.sh/secret",
+        events: ["rate-limited"],
+      },
+      _sendRemote: sendRemote,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(sendRemote.mock.calls[0][1].body).toBe("alice: rate limited");
+  });
+
+  it("returns rateLimitResets keyed by handle with the ISO reset instant", async () => {
+    const resetAt = new Date(2026, 5, 9, 21);
+    mockPingAccounts.mockResolvedValue([rateLimitedResult(resetAt)]);
+    const accounts = [{ handle: "alice", configDir: "/tmp/alice" }];
+
+    const result = await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    expect(result.rateLimitResets).toEqual({
+      alice: resetAt.toISOString(),
+    });
+  });
+
+  it("reports only the non-rate-limit failures under the failure event", async () => {
+    mockPingAccounts.mockResolvedValue([
+      rateLimitedResult(new Date(2026, 5, 9, 21)),
+      { handle: "bob", success: false, durationMs: 50, error: "timed out" },
+    ]);
+    const sendRemote = vi.fn().mockResolvedValue(true);
+    const accounts = [
+      { handle: "alice", configDir: "/tmp/alice" },
+      { handle: "bob", configDir: "/tmp/bob" },
+    ];
+
+    await runPing(accounts, {
+      parallel: false,
+      quiet: false,
+      remoteNotify: { url: "https://ntfy.sh/secret" },
+      _sendRemote: sendRemote,
+      stdout: vi.fn(),
+      stderr: vi.fn(),
+    });
+
+    // Only the generic failure fires by default; its body excludes alice.
+    expect(sendRemote).toHaveBeenCalledTimes(1);
+    expect(sendRemote.mock.calls[0][1]).toEqual({
+      title: "cc-ping: ping failure",
+      body: "1 account(s) failed: bob (timed out)",
+      priority: "high",
+    });
+  });
 });

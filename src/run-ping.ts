@@ -64,7 +64,17 @@ interface RunPingResult {
   exitCode: number;
   failedHandles: string[];
   failureReasons?: Record<string, string>;
+  // handle -> ISO reset instant for accounts that failed with a rate limit
+  // whose body named a reset time. The daemon sleeps until the soonest of
+  // these instead of blind-retrying on a short interval.
+  rateLimitResets?: Record<string, string>;
 }
+
+// Events that notify by default when no explicit `events` filter is set.
+// "rate-limited" is intentionally excluded: a rate limit is expected and
+// self-resolving, so alerting on it (potentially every retry) is just noise.
+// Users opt in by listing "rate-limited" in remoteNotify.events.
+const DEFAULT_NOTIFY_EVENTS: RemoteNotifyEvent[] = ["failure", "new-window"];
 
 export async function runPing(
   accounts: AccountConfig[],
@@ -166,7 +176,8 @@ export async function runPing(
     priority: string,
   ) => {
     if (!remoteNotify?.url) return;
-    if (remoteNotify.events && !remoteNotify.events.includes(event)) return;
+    const events = remoteNotify.events ?? DEFAULT_NOTIFY_EVENTS;
+    if (!events.includes(event)) return;
     externalPromises.push(
       sendRemote(
         remoteNotify.url,
@@ -186,6 +197,9 @@ export async function runPing(
     priority: string,
   ) => {
     if (!notifyCommand || notifyCommand.length === 0) return;
+    // Command notify has no per-event config yet, so it follows the default
+    // set — rate-limit events stay off until that opt-in exists.
+    if (!DEFAULT_NOTIFY_EVENTS.includes(event)) return;
     externalPromises.push(
       sendCommand(
         notifyCommand,
@@ -202,15 +216,39 @@ export async function runPing(
   };
 
   if (failed > 0 && !options.quietFailure) {
-    const failures = results
-      .filter((r) => !r.success)
-      .map((r) => (r.error ? `${r.handle} (${r.error})` : r.handle));
-    const body = `${failed} account(s) failed: ${failures.join(", ")}`;
-    if (options.notify) {
-      await sendNotification("cc-ping: ping failure", body);
+    // A rate limit is expected and self-resolving — separate it from genuine
+    // failures (timeouts, auth, billing) so it can notify on its own quiet
+    // channel instead of riding the high-priority failure alert.
+    const failures = results.filter((r) => !r.success);
+    const rateLimited = failures.filter(
+      (r) => r.claudeResponse?.api_error_status === 429,
+    );
+    const genuineFailures = failures.filter(
+      (r) => r.claudeResponse?.api_error_status !== 429,
+    );
+
+    if (genuineFailures.length > 0) {
+      const detail = genuineFailures
+        .map((r) => (r.error ? `${r.handle} (${r.error})` : r.handle))
+        .join(", ");
+      const body = `${genuineFailures.length} account(s) failed: ${detail}`;
+      if (options.notify) {
+        await sendNotification("cc-ping: ping failure", body);
+      }
+      fireRemote("failure", "cc-ping: ping failure", body, "high");
+      fireCommand("failure", "cc-ping: ping failure", body, "high");
     }
-    fireRemote("failure", "cc-ping: ping failure", body, "high");
-    fireCommand("failure", "cc-ping: ping failure", body, "high");
+
+    if (rateLimited.length > 0) {
+      // Desktop (--notify) and command channels have no per-event opt-in, so
+      // rate-limit alerts go only to the remote channel, which is gated by
+      // remoteNotify.events. fireRemote/fireCommand enforce the default-off.
+      const body = rateLimited
+        .map((r) => `${r.handle}: ${r.error ?? "rate limited"}`)
+        .join(", ");
+      fireRemote("rate-limited", "cc-ping: rate limited", body, "default");
+      fireCommand("rate-limited", "cc-ping: rate limited", body, "default");
+    }
   }
 
   const newWindows = results
@@ -235,9 +273,15 @@ export async function runPing(
 
   const failedHandles = results.filter((r) => !r.success).map((r) => r.handle);
   const failureReasons: Record<string, string> = {};
+  const rateLimitResets: Record<string, string> = {};
   for (const r of results) {
     if (!r.success && r.error) failureReasons[r.handle] = r.error;
+    if (r.rateLimitResetAt) {
+      rateLimitResets[r.handle] = r.rateLimitResetAt.toISOString();
+    }
   }
+  const resets =
+    Object.keys(rateLimitResets).length > 0 ? rateLimitResets : undefined;
 
   if (options.json) {
     const jsonResults = results.map((r) => ({
@@ -247,12 +291,22 @@ export async function runPing(
       error: r.error,
     }));
     stdout(JSON.stringify(jsonResults, null, 2));
-    return { exitCode: failed > 0 ? 1 : 0, failedHandles, failureReasons };
+    return {
+      exitCode: failed > 0 ? 1 : 0,
+      failedHandles,
+      failureReasons,
+      rateLimitResets: resets,
+    };
   }
 
   if (failed > 0) {
     logger.error(`${failed}/${results.length} failed`);
-    return { exitCode: 1, failedHandles, failureReasons };
+    return {
+      exitCode: 1,
+      failedHandles,
+      failureReasons,
+      rateLimitResets: resets,
+    };
   }
 
   logger.log(`\nAll ${results.length} accounts pinged successfully`);

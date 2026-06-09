@@ -252,6 +252,21 @@ describe("pingAccounts", () => {
     setupMock(null, apiErrorJson(429));
     const results = await pingAccounts([{ handle: "a", configDir: "/tmp/a" }]);
     expect(results[0].error).toBe("rate limited");
+    expect(results[0].rateLimitResetAt).toBeUndefined();
+  });
+
+  it("enriches the rate-limited error with the reset time from the body", async () => {
+    setupMock(
+      null,
+      apiErrorJson(
+        429,
+        "You've hit your weekly limit · resets 9pm (Europe/Stockholm)",
+      ),
+    );
+    const results = await pingAccounts([{ handle: "a", configDir: "/tmp/a" }]);
+    expect(results[0].error).toBe("rate limited (resets 9pm)");
+    expect(results[0].rateLimitResetAt).toBeInstanceOf(Date);
+    expect(results[0].rateLimitResetAt!.getHours()).toBe(21);
   });
 
   it("maps 5xx api_error_status to server error with code", async () => {
