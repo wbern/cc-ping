@@ -29,7 +29,11 @@ function describeClaudeError(
     if (status === 403) return "permission denied";
     if (status === 429) {
       const info = parseRateLimitReset(response.result, new Date());
-      return info ? `rate limited (resets ${info.resetLabel})` : "rate limited";
+      if (!info) return "rate limited";
+      // Name the limit type when the body states it ("weekly limit", "5-hour
+      // limit") so the log answers "what kind of limit" at a glance.
+      const kind = info.scope ? `${info.scope} limit` : "rate limited";
+      return `${kind} (resets ${info.resetLabel})`;
     }
     if (status >= 500) return `server error (${status})`;
     return `HTTP ${status}`;

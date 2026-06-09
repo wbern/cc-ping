@@ -1026,7 +1026,7 @@ describe("runPing", () => {
     handle: "alice",
     success: false,
     durationMs: 100,
-    error: "rate limited (resets 9pm)",
+    error: "weekly limit (resets 9pm)",
     claudeResponse: apiError(429),
     rateLimitResetAt: resetAt,
   });
@@ -1079,7 +1079,7 @@ describe("runPing", () => {
       "https://ntfy.sh/secret",
       {
         title: "cc-ping: rate limited",
-        body: "alice: rate limited (resets 9pm)",
+        body: "alice: weekly limit (resets 9pm)",
         priority: "default",
       },
       expect.objectContaining({ log: expect.any(Function) }),

@@ -264,9 +264,15 @@ describe("pingAccounts", () => {
       ),
     );
     const results = await pingAccounts([{ handle: "a", configDir: "/tmp/a" }]);
-    expect(results[0].error).toBe("rate limited (resets 9pm)");
+    expect(results[0].error).toBe("weekly limit (resets 9pm)");
     expect(results[0].rateLimitResetAt).toBeInstanceOf(Date);
     expect(results[0].rateLimitResetAt!.getHours()).toBe(21);
+  });
+
+  it("reports a bare 'rate limited' when the 429 body has a reset but no limit type", async () => {
+    setupMock(null, apiErrorJson(429, "resets 9pm"));
+    const results = await pingAccounts([{ handle: "a", configDir: "/tmp/a" }]);
+    expect(results[0].error).toBe("rate limited (resets 9pm)");
   });
 
   it("maps 5xx api_error_status to server error with code", async () => {
