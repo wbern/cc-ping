@@ -58,9 +58,9 @@ function bashCompletion(): string {
       if [[ \${COMP_CWORD} -eq 2 ]]; then
         COMPREPLY=( $(compgen -W "start stop status install uninstall" -- "\${cur}") )
       elif [[ "\${COMP_WORDS[2]}" == "start" && "\${cur}" == -* ]]; then
-        COMPREPLY=( $(compgen -W "--interval --quiet --bell --notify" -- "\${cur}") )
+        COMPREPLY=( $(compgen -W "--interval --quiet --bell --notify --smart-schedule" -- "\${cur}") )
       elif [[ "\${COMP_WORDS[2]}" == "install" && "\${cur}" == -* ]]; then
-        COMPREPLY=( $(compgen -W "--interval --quiet --bell --notify" -- "\${cur}") )
+        COMPREPLY=( $(compgen -W "--interval --quiet --bell --notify --smart-schedule --defer-start" -- "\${cur}") )
       elif [[ "\${COMP_WORDS[2]}" == "status" && "\${cur}" == -* ]]; then
         COMPREPLY=( $(compgen -W "--json" -- "\${cur}") )
       fi
@@ -166,12 +166,22 @@ _cc_ping() {
               ;;
             subargs)
               case $words[1] in
-                start|install)
+                start)
                   _arguments \\
                     '--interval[Ping interval in minutes]:minutes:' \\
                     '--quiet[Suppress ping output]' \\
                     '--bell[Ring bell on failure]' \\
-                    '--notify[Send notification on new windows and failures]'
+                    '--notify[Send notification on new windows and failures]' \\
+                    '--smart-schedule[Time pings based on usage patterns]:on-off:'
+                  ;;
+                install)
+                  _arguments \\
+                    '--interval[Ping interval in minutes]:minutes:' \\
+                    '--quiet[Suppress ping output]' \\
+                    '--bell[Ring bell on failure]' \\
+                    '--notify[Send notification on new windows and failures]' \\
+                    '--smart-schedule[Time pings based on usage patterns]:on-off:' \\
+                    '--defer-start[Write service files without loading or starting]'
                   ;;
                 status)
                   _arguments '--json[JSON output]'
@@ -242,6 +252,8 @@ complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subc
 complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start install" -s q -l quiet -d "Suppress output"
 complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start install" -l bell -d "Ring bell on failure"
 complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start install" -l notify -d "Send notification on new windows and failures"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from start install" -l smart-schedule -r -d "Time pings based on usage patterns"
+complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from install" -l defer-start -d "Write service files without loading or starting"
 complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and __fish_seen_subcommand_from status" -l json -d "JSON output"
 `;
 }

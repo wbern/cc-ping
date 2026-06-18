@@ -847,6 +847,9 @@ daemon
     }
     if (result.managed) {
       console.log("Started the installed system service.");
+      console.log(
+        "If it was installed with --defer-start, the service is now loaded/active.",
+      );
     } else {
       console.log(`Daemon started (PID: ${result.pid})`);
       console.log(
@@ -875,9 +878,15 @@ daemon
     const { getServiceStatus } = await import("./service.js");
     const svc = getServiceStatus();
     if (svc.installed) {
-      console.log(
-        "Note: system service is installed. The daemon may restart. Use `cc-ping daemon uninstall` to fully remove.",
-      );
+      if (svc.loaded) {
+        console.log(
+          "Note: system service is still installed and loaded, so launchd/systemd may restart it. Use `cc-ping daemon uninstall` to remove persistence.",
+        );
+      } else {
+        console.log(
+          "System service files remain installed but are not loaded. Use `cc-ping daemon uninstall` to remove them.",
+        );
+      }
     }
   });
 
@@ -922,6 +931,11 @@ daemon
               installed: true,
               path: svc.servicePath,
               platform: svc.platform,
+              loaded: svc.loaded,
+              running: svc.running,
+              watchdogInstalled: svc.watchdogInstalled,
+              watchdogLoaded: svc.watchdogLoaded,
+              watchdogActive: svc.watchdogActive,
             },
           }
         : { service: { installed: false } };
@@ -952,11 +966,24 @@ daemon
     if (!status.running) {
       if (svc.installed) {
         const kind = svc.platform === "darwin" ? "launchd" : "systemd";
-        console.log(
-          `Daemon is not running (system service: installed via ${kind})`,
-        );
+        if (svc.loaded) {
+          console.log(
+            `Daemon is not running (system service: installed and loaded via ${kind})`,
+          );
+          console.log(
+            "It may start again when the service manager runs it. Remove persistence with: cc-ping daemon uninstall",
+          );
+        } else {
+          console.log(
+            `Daemon is not running (system service: installed but not loaded via ${kind})`,
+          );
+          console.log("Start it later with: cc-ping daemon start");
+          console.log(
+            "Remove the service files with: cc-ping daemon uninstall",
+          );
+        }
       } else {
-        console.log("Daemon is not running");
+        console.log("Daemon is not running (system service: not installed)");
       }
       return;
     }
@@ -976,7 +1003,24 @@ daemon
     }
     if (svc.installed) {
       const kind = svc.platform === "darwin" ? "launchd" : "systemd";
-      console.log(`  System service: installed (${kind})`);
+      const state =
+        svc.loaded === false
+          ? "installed but not loaded"
+          : svc.running === false
+            ? "installed and loaded"
+            : "installed and running";
+      console.log(`  System service: ${state} (${kind})`);
+      if (svc.watchdogInstalled !== undefined) {
+        const watchdogState =
+          svc.watchdogInstalled === false
+            ? "not installed"
+            : svc.watchdogLoaded === false
+              ? "installed but inactive"
+              : svc.watchdogActive === false
+                ? "installed but inactive"
+                : "installed and active";
+        console.log(`  Watchdog: ${watchdogState}`);
+      }
       if (svc.watchdogInstalled === false) {
         console.log(
           yellow(
@@ -1022,6 +1066,11 @@ daemon
     "--smart-schedule <on|off>",
     "Time pings based on usage patterns (default: on)",
   )
+  .option(
+    "--defer-start",
+    "Write service files but do not load/start the daemon now",
+    false,
+  )
   .action(async (opts) => {
     let smartSchedule: boolean | undefined;
     if (opts.smartSchedule !== undefined) {
@@ -1034,15 +1083,25 @@ daemon
       bell: opts.bell,
       notify: opts.notify,
       smartSchedule,
+      deferStart: opts.deferStart,
     });
     if (!result.success) {
       console.error(result.error);
       process.exit(1);
     }
-    console.log(`Service installed: ${result.servicePath}`);
-    console.log(
-      "The daemon will start automatically on login. Use `cc-ping daemon uninstall` to remove.",
-    );
+    console.log(`Service files installed: ${result.servicePath}`);
+    if (result.deferred) {
+      console.log(
+        "Deferred start requested: the daemon was not loaded or started.",
+      );
+      console.log("Start it later with: cc-ping daemon start");
+      console.log("Remove it with: cc-ping daemon uninstall");
+    } else {
+      console.log(
+        "Service loaded/started. The daemon will start automatically on login.",
+      );
+      console.log("Use `cc-ping daemon uninstall` to remove persistence.");
+    }
   });
 
 daemon

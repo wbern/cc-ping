@@ -57,6 +57,11 @@ expect -v          # optional: verify experimental PTY automation is available
 
 ## Install
 
+Package installation and upgrades only install the `cc-ping` binary. They do
+not register a background daemon, start a service, or ping Claude accounts. To
+run in the background, opt in with `cc-ping daemon start` or
+`cc-ping daemon install`.
+
 ### Standalone binary (recommended)
 
 No Node.js required — downloads a single binary:
@@ -336,11 +341,13 @@ To disable: `cc-ping daemon start --smart-schedule off`
 
 ### System service (survive reboots)
 
-`daemon start` runs as a detached process that won't survive a reboot. Use `daemon install` to register as a system service that starts automatically on login:
+`daemon start` runs as a detached process that won't survive a reboot. Use `daemon install` to register as a user-level system service. By default, installation also loads/starts that service immediately:
 
 ```bash
-cc-ping daemon install --notify                   # install and start
-cc-ping daemon status                              # shows "System service: installed"
+cc-ping daemon install --notify                   # write service files and start/load now
+cc-ping daemon install --notify --defer-start     # write service files only; do not start
+cc-ping daemon start                               # start/load an installed deferred service
+cc-ping daemon status                              # shows installed, loaded, running, watchdog
 cc-ping daemon uninstall                           # remove service and stop
 ```
 
@@ -351,7 +358,15 @@ cc-ping daemon uninstall                           # remove service and stop
 
 The service restarts the daemon on crash (but not on clean exit via `daemon stop`). No `sudo` required — both use user-level service managers.
 
-**`daemon stop` vs `daemon uninstall`:** When a service is installed, `daemon stop` kills the process but the service manager may restart it on crash. Use `daemon uninstall` to fully remove the service, or `daemon stop` if you just need a temporary pause.
+Use `--defer-start` when you want installation to be file-only, for example
+during an upgrade or setup pass where you do not want any background pings to
+begin yet. A deferred install writes the same launchd/systemd and watchdog
+files, but does not run `launchctl load` or `systemctl --user enable --now`.
+It does not load, enable, start, or stop anything. On macOS, deferred launchd
+plists are written disabled so login does not activate them before you opt in.
+Later, `cc-ping daemon start` activates the installed service and watchdog.
+
+**`daemon stop` vs `daemon uninstall`:** When a service is installed and loaded, `daemon stop` kills the process but the service manager may restart it. Use `daemon uninstall` to unload and remove the service, or `daemon stop` if you just need a temporary pause. `daemon status --json` reports `service.installed`, `service.loaded`, `service.running`, `service.watchdogInstalled`, `service.watchdogLoaded`, and `service.watchdogActive` separately.
 
 ### Watchdog (self-healing)
 
@@ -364,7 +379,7 @@ The service restarts the daemon on crash (but not on clean exit via `daemon stop
 
 The check is deliberately conservative: it force-restarts the daemon **only** when a recorded daemon process is alive *and* its heartbeat is more than three minutes stale. A missing heartbeat (a daemon that predates this feature, or one that just restarted) is treated as healthy and left alone. Worst case is a single harmless restart; it can never leave the daemon hung. Watchdog activity is logged to `~/.config/cc-ping/watchdog.log`.
 
-> **Upgrading from an earlier version?** The watchdog is added by `daemon install`. After upgrading, re-run `cc-ping daemon install` (or `uninstall` then `install`) to register it — `daemon status` will remind you if it's missing. The daemon binary upgrades and runs fine without it; you just don't get automatic recovery until the watchdog is installed.
+> **Upgrading from an earlier version?** The watchdog is added by `daemon install`. After upgrading, re-run `cc-ping daemon install` to register and load it, or `cc-ping daemon install --defer-start` to write the watchdog files without starting/loading anything yet. `daemon status` will remind you if it's missing. The daemon binary upgrades and runs fine without it; you just don't get automatic recovery until the watchdog is installed.
 
 ## Notifications
 

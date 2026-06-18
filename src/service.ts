@@ -17,6 +17,7 @@ interface ServiceOptions {
   bell?: boolean;
   notify?: boolean;
   smartSchedule?: boolean;
+  deferStart?: boolean;
 }
 
 export interface ExecInfo {
@@ -28,7 +29,11 @@ interface ServiceStatus {
   installed: boolean;
   servicePath?: string;
   platform: string;
+  loaded?: boolean;
+  running?: boolean;
   watchdogInstalled?: boolean;
+  watchdogLoaded?: boolean;
+  watchdogActive?: boolean;
 }
 
 // --- Dependencies ---
@@ -134,7 +139,7 @@ ${entries}
 <dict>
     <key>Label</key>
     <string>${PLIST_LABEL}</string>
-    <key>ProgramArguments</key>
+${options.deferStart ? "    <key>Disabled</key>\n    <true/>\n" : ""}    <key>ProgramArguments</key>
     <array>
 ${argsXml}
     </array>
@@ -158,6 +163,7 @@ export function generateWatchdogPlist(
   execInfo: ExecInfo,
   configDir?: string,
   path?: string,
+  disabled = false,
 ): string {
   const allArgs = [
     execInfo.executable,
@@ -200,7 +206,7 @@ ${entries}
 <dict>
     <key>Label</key>
     <string>${WATCHDOG_PLIST_LABEL}</string>
-    <key>ProgramArguments</key>
+${disabled ? "    <key>Disabled</key>\n    <true/>\n" : ""}    <key>ProgramArguments</key>
     <array>
 ${argsXml}
     </array>
@@ -360,11 +366,12 @@ function writeWatchdogUnits(
   execInfo: ExecInfo,
   configDir: string | undefined,
   envPath: string | undefined,
+  deferStart = false,
 ): void {
   if (platform === "darwin") {
     writeFileSync(
       watchdogPath,
-      generateWatchdogPlist(execInfo, configDir, envPath),
+      generateWatchdogPlist(execInfo, configDir, envPath, deferStart),
     );
   } else {
     const { service, timer } = generateWatchdogSystemd(
@@ -385,7 +392,15 @@ function writeWatchdogUnits(
 export async function installService(
   options: ServiceOptions,
   deps?: Partial<ServiceDeps>,
-): Promise<{ success: boolean; servicePath: string; error?: string }> {
+): Promise<{
+  success: boolean;
+  servicePath: string;
+  deferred?: boolean;
+  activated?: boolean;
+  watchdogInstalled?: boolean;
+  watchdogActivated?: boolean;
+  error?: string;
+}> {
   /* c8 ignore next 8 -- production defaults */
   const _platform = deps?.platform ?? process.platform;
   const _homedir = deps?.homedir ?? nodeHomedir;
@@ -446,6 +461,17 @@ export async function installService(
       envPath,
     );
 
+    if (options.deferStart) {
+      return {
+        success: true,
+        servicePath: path,
+        deferred: true,
+        activated: false,
+        watchdogInstalled: true,
+        watchdogActivated: false,
+      };
+    }
+
     try {
       if (_platform === "darwin") {
         _execSync(`launchctl load "${watchdogPath}"`);
@@ -463,14 +489,23 @@ export async function installService(
       };
     }
 
-    return { success: true, servicePath: path };
+    return {
+      success: true,
+      servicePath: path,
+      activated: true,
+      watchdogInstalled: true,
+      watchdogActivated: true,
+    };
   }
 
-  // Stop any running daemon (ignore errors)
-  try {
-    await _stopDaemon();
-  } catch {
-    // not running, that's fine
+  if (!options.deferStart) {
+    // Stop any running unmanaged daemon before handing control to the service
+    // manager. Deferred installs are intentionally file-only.
+    try {
+      await _stopDaemon();
+    } catch {
+      // not running, that's fine
+    }
   }
 
   const execInfo = resolveExecutable({
@@ -500,11 +535,23 @@ export async function installService(
     execInfo,
     configDir,
     envPath,
+    options.deferStart,
   );
+
+  if (options.deferStart) {
+    return {
+      success: true,
+      servicePath: path,
+      deferred: true,
+      activated: false,
+      watchdogInstalled: true,
+      watchdogActivated: false,
+    };
+  }
 
   try {
     if (_platform === "darwin") {
-      _execSync(`launchctl load "${path}"`);
+      _execSync(`launchctl load -w "${path}"`);
       _execSync(`launchctl load "${watchdogPath}"`);
     } else {
       _execSync("systemctl --user daemon-reload");
@@ -519,7 +566,13 @@ export async function installService(
     };
   }
 
-  return { success: true, servicePath: path };
+  return {
+    success: true,
+    servicePath: path,
+    activated: true,
+    watchdogInstalled: true,
+    watchdogActivated: true,
+  };
 }
 
 export async function uninstallService(
@@ -595,25 +648,43 @@ export async function uninstallService(
 
 // (Re)start the installed system service so it runs from its own definition
 // (launchd plist / systemd unit) — preserving --notify and --auto-update, which
-// a bare `daemon start` cannot. On darwin we unload then load (load alone errors
-// if the job is already registered); on linux `systemctl restart` is idempotent.
+// a bare `daemon start` cannot. This also activates the watchdog if present,
+// so a deferred install can be fully brought online later.
 export function startService(deps?: Partial<ServiceDeps>): {
   success: boolean;
   error?: string;
+};
+export function startService(
+  deps: Partial<ServiceDeps> | undefined,
+  mode: "start" | "restart",
+): {
+  success: boolean;
+  error?: string;
+};
+export function startService(
+  deps?: Partial<ServiceDeps>,
+  mode: "start" | "restart" = "start",
+): {
+  success: boolean;
+  error?: string;
 } {
-  /* c8 ignore next 5 -- production defaults */
+  /* c8 ignore next 6 -- production defaults */
   const _platform = deps?.platform ?? process.platform;
   const _homedir = deps?.homedir ?? nodeHomedir;
+  const _existsSync = deps?.existsSync ?? nodeExistsSync;
   const _execSync =
     deps?.execSync ??
     ((cmd: string) => nodeExecSync(cmd, { encoding: "utf-8" }));
 
+  const home = _homedir();
   let path: string;
   try {
-    path = servicePath(_platform, _homedir());
+    path = servicePath(_platform, home);
   } catch (err) {
     return { success: false, error: (err as Error).message };
   }
+  const watchdogPath = watchdogServicePath(_platform, home);
+  const hasWatchdog = _existsSync(watchdogPath);
 
   try {
     if (_platform === "darwin") {
@@ -622,9 +693,28 @@ export function startService(deps?: Partial<ServiceDeps>): {
       } catch {
         // Not loaded yet — fine, the load below registers it.
       }
-      _execSync(`launchctl load "${path}"`);
+      _execSync(`launchctl load -w "${path}"`);
+      if (hasWatchdog) {
+        try {
+          _execSync(`launchctl unload "${watchdogPath}"`);
+        } catch {
+          // Not loaded yet — fine.
+        }
+        _execSync(`launchctl load -w "${watchdogPath}"`);
+      }
     } else {
-      _execSync(`systemctl --user restart ${SYSTEMD_SERVICE}`);
+      _execSync("systemctl --user daemon-reload");
+      if (mode === "restart") {
+        _execSync(`systemctl --user enable ${SYSTEMD_SERVICE}`);
+        _execSync(`systemctl --user restart ${SYSTEMD_SERVICE}`);
+      } else {
+        _execSync(`systemctl --user enable --now ${SYSTEMD_SERVICE}`);
+      }
+      if (hasWatchdog) {
+        _execSync(
+          `systemctl --user enable --now ${WATCHDOG_SYSTEMD_UNIT}.timer`,
+        );
+      }
     }
   } catch (err) {
     return {
@@ -671,7 +761,7 @@ export async function startOrRestartDaemon(
 }> {
   const status = getServiceStatus(deps);
   if (status.installed) {
-    const result = startService(deps);
+    const result = startService(deps, mode);
     return { success: result.success, managed: true, error: result.error };
   }
 
@@ -695,10 +785,13 @@ export async function startOrRestartDaemon(
 }
 
 export function getServiceStatus(deps?: Partial<ServiceDeps>): ServiceStatus {
-  /* c8 ignore next 3 -- production defaults */
+  /* c8 ignore next 6 -- production defaults */
   const _platform = deps?.platform ?? process.platform;
   const _homedir = deps?.homedir ?? nodeHomedir;
   const _existsSync = deps?.existsSync ?? nodeExistsSync;
+  const _execSync =
+    deps?.execSync ??
+    ((cmd: string) => nodeExecSync(cmd, { encoding: "utf-8" }));
 
   const home = _homedir();
   let path: string;
@@ -708,12 +801,102 @@ export function getServiceStatus(deps?: Partial<ServiceDeps>): ServiceStatus {
     return { installed: false, platform: _platform };
   }
 
+  const installed = _existsSync(path);
+  const watchdogPath = watchdogServicePath(_platform, home);
+  const watchdogInstalled = _existsSync(watchdogPath);
+  const serviceRuntime = getManagerRuntimeStatus(
+    _platform,
+    PLIST_LABEL,
+    SYSTEMD_SERVICE,
+    _execSync,
+  );
+  const watchdogRuntime = getManagerRuntimeStatus(
+    _platform,
+    WATCHDOG_PLIST_LABEL,
+    `${WATCHDOG_SYSTEMD_UNIT}.timer`,
+    _execSync,
+  );
+
   return {
-    installed: _existsSync(path),
+    installed,
     servicePath: path,
     platform: _platform,
-    watchdogInstalled: _existsSync(watchdogServicePath(_platform, home)),
+    loaded: installed ? serviceRuntime.loaded : false,
+    running: installed ? serviceRuntime.running : false,
+    watchdogInstalled,
+    watchdogLoaded: watchdogInstalled ? watchdogRuntime.loaded : false,
+    watchdogActive: watchdogInstalled
+      ? getWatchdogActive(_platform, watchdogRuntime)
+      : false,
   };
+}
+
+function getManagerRuntimeStatus(
+  platform: string,
+  launchdLabel: string,
+  systemdUnit: string,
+  execSync: (cmd: string, options?: object) => string,
+): { loaded: boolean; running: boolean } {
+  if (platform === "darwin") {
+    return getLaunchdRuntimeStatus(launchdLabel, execSync);
+  }
+  return getSystemdRuntimeStatus(systemdUnit, execSync);
+}
+
+function getLaunchdRuntimeStatus(
+  label: string,
+  execSync: (cmd: string, options?: object) => string,
+): { loaded: boolean; running: boolean } {
+  try {
+    const output = execSync("launchctl list", {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const match = output.match(
+      new RegExp(
+        `(?:^|\\n)\\s*(\\S+)\\s+\\S+\\s+${escapeRegExp(label)}(?:\\s|$)`,
+      ),
+    );
+    return {
+      loaded: Boolean(match),
+      running: Boolean(match && match[1] !== "-"),
+    };
+  } catch {
+    return { loaded: false, running: false };
+  }
+}
+
+function getSystemdRuntimeStatus(
+  unit: string,
+  execSync: (cmd: string, options?: object) => string,
+): { loaded: boolean; running: boolean } {
+  const running = runSystemctlCheck(execSync, `is-active ${unit}`, "active");
+  const enabled = runSystemctlCheck(execSync, `is-enabled ${unit}`, "enabled");
+  return { loaded: enabled || running, running };
+}
+
+function getWatchdogActive(
+  platform: string,
+  runtime: { loaded: boolean; running: boolean },
+): boolean {
+  return platform === "darwin" ? runtime.loaded : runtime.running;
+}
+
+function runSystemctlCheck(
+  execSync: (cmd: string, options?: object) => string,
+  args: string,
+  expected: string,
+): boolean {
+  try {
+    return (
+      execSync(`systemctl --user ${args}`, {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim() === expected
+    );
+  } catch {
+    return false;
+  }
 }
 
 // --- Helpers ---
@@ -725,6 +908,10 @@ function escapeXml(str: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
+}
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 const QUOTA_WINDOW_MS = 5 * 60 * 60 * 1000; // 5 hours

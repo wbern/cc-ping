@@ -38,8 +38,38 @@ describe("service", () => {
       expect(result.success).toBe(true);
       expect(execSync.mock.calls.map((c) => c[0])).toEqual([
         'launchctl unload "/Users/test/Library/LaunchAgents/com.cc-ping.daemon.plist"',
-        'launchctl load "/Users/test/Library/LaunchAgents/com.cc-ping.daemon.plist"',
+        'launchctl load -w "/Users/test/Library/LaunchAgents/com.cc-ping.daemon.plist"',
       ]);
+    });
+
+    it("loads the watchdog on darwin when the watchdog plist exists", () => {
+      const execSync = vi.fn().mockReturnValue("");
+      const result = startService(
+        makeDeps({ platform: "darwin", existsSync: () => true, execSync }),
+      );
+      expect(result.success).toBe(true);
+      expect(execSync.mock.calls.map((c) => c[0])).toContain(
+        'launchctl load -w "/Users/test/Library/LaunchAgents/com.cc-ping.watchdog.plist"',
+      );
+    });
+
+    it("loads the watchdog on darwin when only the watchdog unload fails", () => {
+      const execSync = vi.fn((cmd: string) => {
+        if (
+          cmd.includes("launchctl unload") &&
+          cmd.includes("com.cc-ping.watchdog")
+        ) {
+          throw new Error("watchdog not loaded");
+        }
+        return "";
+      });
+      const result = startService(
+        makeDeps({ platform: "darwin", existsSync: () => true, execSync }),
+      );
+      expect(result.success).toBe(true);
+      expect(execSync).toHaveBeenCalledWith(
+        'launchctl load -w "/Users/test/Library/LaunchAgents/com.cc-ping.watchdog.plist"',
+      );
     });
 
     it("loads even when the job was not previously registered (unload errors)", () => {
@@ -52,13 +82,41 @@ describe("service", () => {
       expect(execSync.mock.calls.some((c) => c[0].includes("load"))).toBe(true);
     });
 
-    it("restarts the systemd unit on linux", () => {
+    it("enables and starts the systemd unit on linux", () => {
       const execSync = vi.fn().mockReturnValue("");
       const result = startService(makeDeps({ platform: "linux", execSync }));
       expect(result.success).toBe(true);
-      expect(execSync).toHaveBeenCalledWith(
-        "systemctl --user restart cc-ping-daemon",
+      expect(execSync.mock.calls.map((c) => c[0])).toEqual([
+        "systemctl --user daemon-reload",
+        "systemctl --user enable --now cc-ping-daemon",
+      ]);
+    });
+
+    it("restarts the systemd unit on linux when requested", () => {
+      const execSync = vi.fn().mockReturnValue("");
+      const result = startService(
+        makeDeps({ platform: "linux", execSync }),
+        "restart",
       );
+      expect(result.success).toBe(true);
+      expect(execSync.mock.calls.map((c) => c[0])).toEqual([
+        "systemctl --user daemon-reload",
+        "systemctl --user enable cc-ping-daemon",
+        "systemctl --user restart cc-ping-daemon",
+      ]);
+    });
+
+    it("enables the watchdog timer on linux when the watchdog timer exists", () => {
+      const execSync = vi.fn().mockReturnValue("");
+      const result = startService(
+        makeDeps({ platform: "linux", existsSync: () => true, execSync }),
+      );
+      expect(result.success).toBe(true);
+      expect(execSync.mock.calls.map((c) => c[0])).toEqual([
+        "systemctl --user daemon-reload",
+        "systemctl --user enable --now cc-ping-daemon",
+        "systemctl --user enable --now cc-ping-watchdog.timer",
+      ]);
     });
 
     it("returns an error when the service command fails", () => {
@@ -245,6 +303,13 @@ describe("service", () => {
       expect(plist).toContain("<string>/custom/config</string>");
     });
 
+    it("marks the launchd daemon disabled when start is deferred", () => {
+      const plist = generateLaunchdPlist({ deferStart: true }, execInfo);
+      expect(plist).toContain("<key>Disabled</key>");
+      expect(plist).toContain("<true/>");
+      expect(plist).toContain("<key>RunAtLoad</key>");
+    });
+
     it("omits CC_PING_CONFIG when configDir is not provided", () => {
       const plist = generateLaunchdPlist({}, execInfo);
       expect(plist).not.toContain("CC_PING_CONFIG");
@@ -328,6 +393,13 @@ describe("service", () => {
       expect(plist).toContain("<key>CC_PING_CONFIG</key>");
       expect(plist).toContain("<string>/my/config</string>");
       expect(plist).toContain("/my/config/watchdog.log");
+    });
+
+    it("marks the watchdog disabled when start is deferred", () => {
+      const plist = generateWatchdogPlist(execInfo, undefined, undefined, true);
+      expect(plist).toContain("<key>Disabled</key>");
+      expect(plist).toContain("<true/>");
+      expect(plist).toContain("<key>StartInterval</key>");
     });
 
     it("includes PATH in the environment when provided", () => {
@@ -602,6 +674,34 @@ describe("service", () => {
       );
     });
 
+    it("adds a missing watchdog without loading it when start is deferred", async () => {
+      const writeFileSync = vi.fn();
+      const execSync = vi.fn().mockReturnValue("/usr/local/bin/cc-ping\n");
+      const deps = makeDeps({
+        platform: "darwin",
+        existsSync: (p: string) => !p.includes("watchdog"),
+        writeFileSync,
+        execSync,
+      });
+
+      const result = await installService({ deferStart: true }, deps);
+
+      expect(result).toMatchObject({
+        success: true,
+        deferred: true,
+        activated: false,
+        watchdogInstalled: true,
+        watchdogActivated: false,
+      });
+      expect(writeFileSync).toHaveBeenCalledWith(
+        expect.stringContaining("com.cc-ping.watchdog.plist"),
+        expect.stringContaining("_healthcheck"),
+      );
+      expect(execSync).not.toHaveBeenCalledWith(
+        expect.stringContaining("launchctl load"),
+      );
+    });
+
     it("reports an error if the in-place watchdog fails to load", async () => {
       const execSync = vi.fn((cmd: string) => {
         if (cmd.includes("watchdog")) throw new Error("load: boom");
@@ -626,6 +726,23 @@ describe("service", () => {
       const deps = makeDeps({ stopDaemon });
       await installService({}, deps);
       expect(stopDaemon).toHaveBeenCalled();
+    });
+
+    it("does not stop a running daemon when install start is deferred", async () => {
+      const stopDaemon = vi.fn().mockResolvedValue({ success: true });
+      const deps = makeDeps({
+        stopDaemon,
+        execSync: vi.fn().mockReturnValue("/usr/local/bin/cc-ping\n"),
+      });
+
+      const result = await installService({ deferStart: true }, deps);
+
+      expect(result).toMatchObject({
+        success: true,
+        deferred: true,
+        activated: false,
+      });
+      expect(stopDaemon).not.toHaveBeenCalled();
     });
 
     it("ignores stopDaemon errors", async () => {
@@ -675,6 +792,35 @@ describe("service", () => {
       );
     });
 
+    it("writes launchd service files without loading when start is deferred", async () => {
+      const writeFileSync = vi.fn();
+      const execSync = vi.fn().mockReturnValue("/usr/local/bin/cc-ping\n");
+      const deps = makeDeps({ platform: "darwin", writeFileSync, execSync });
+
+      const result = await installService({ deferStart: true }, deps);
+
+      expect(result).toMatchObject({
+        success: true,
+        deferred: true,
+        activated: false,
+        watchdogInstalled: true,
+        watchdogActivated: false,
+      });
+      expect(writeFileSync).toHaveBeenCalledWith(
+        expect.stringContaining("com.cc-ping.daemon.plist"),
+        expect.stringContaining("com.cc-ping.daemon"),
+      );
+      expect(writeFileSync).toHaveBeenCalledWith(
+        expect.stringContaining("com.cc-ping.watchdog.plist"),
+        expect.stringContaining("_healthcheck"),
+      );
+      expect(
+        execSync.mock.calls.some((call) =>
+          String(call[0]).includes("launchctl load"),
+        ),
+      ).toBe(false);
+    });
+
     it("writes unit and enables on linux", async () => {
       const writeFileSync = vi.fn();
       const mkdirSync = vi.fn();
@@ -717,6 +863,36 @@ describe("service", () => {
       );
       expect(execSync).toHaveBeenCalledWith(
         "systemctl --user enable --now cc-ping-watchdog.timer",
+      );
+    });
+
+    it("writes systemd units without enabling them when start is deferred", async () => {
+      const writeFileSync = vi.fn();
+      const execSync = vi.fn().mockReturnValue("/usr/local/bin/cc-ping\n");
+      const deps = makeDeps({ platform: "linux", writeFileSync, execSync });
+
+      const result = await installService({ deferStart: true }, deps);
+
+      expect(result).toMatchObject({
+        success: true,
+        deferred: true,
+        activated: false,
+        watchdogInstalled: true,
+        watchdogActivated: false,
+      });
+      expect(writeFileSync).toHaveBeenCalledWith(
+        expect.stringContaining("cc-ping-daemon.service"),
+        expect.stringContaining("[Service]"),
+      );
+      expect(writeFileSync).toHaveBeenCalledWith(
+        expect.stringContaining("cc-ping-watchdog.timer"),
+        expect.stringContaining("[Timer]"),
+      );
+      expect(execSync).not.toHaveBeenCalledWith(
+        "systemctl --user daemon-reload",
+      );
+      expect(execSync).not.toHaveBeenCalledWith(
+        expect.stringContaining("enable --now"),
       );
     });
 
@@ -1066,6 +1242,108 @@ describe("service", () => {
   });
 
   describe("getServiceStatus", () => {
+    it("reports loaded-but-not-running launchd services", () => {
+      const execSync = vi.fn().mockReturnValue(`
+PID\tStatus\tLabel
+-\t0\tcom.cc-ping.daemon
+123\t0\tcom.cc-ping.watchdog
+`);
+      const deps = makeDeps({
+        platform: "darwin",
+        existsSync: () => true,
+        execSync,
+      });
+
+      const status = getServiceStatus(deps);
+
+      expect(status.installed).toBe(true);
+      expect(status.loaded).toBe(true);
+      expect(status.running).toBe(false);
+      expect(status.watchdogInstalled).toBe(true);
+      expect(status.watchdogLoaded).toBe(true);
+      expect(status.watchdogActive).toBe(true);
+    });
+
+    it("reports installed-but-not-loaded launchd services", () => {
+      const deps = makeDeps({
+        platform: "darwin",
+        existsSync: () => true,
+        execSync: vi.fn().mockReturnValue("PID\tStatus\tLabel\n"),
+      });
+
+      const status = getServiceStatus(deps);
+
+      expect(status.installed).toBe(true);
+      expect(status.loaded).toBe(false);
+      expect(status.running).toBe(false);
+      expect(status.watchdogLoaded).toBe(false);
+      expect(status.watchdogActive).toBe(false);
+    });
+
+    it("reports launchd services as not loaded when launchctl cannot be queried", () => {
+      const deps = makeDeps({
+        platform: "darwin",
+        existsSync: () => true,
+        execSync: vi.fn(() => {
+          throw new Error("launchctl unavailable");
+        }),
+      });
+
+      const status = getServiceStatus(deps);
+
+      expect(status.installed).toBe(true);
+      expect(status.loaded).toBe(false);
+      expect(status.running).toBe(false);
+      expect(status.watchdogLoaded).toBe(false);
+      expect(status.watchdogActive).toBe(false);
+    });
+
+    it("reports active systemd services as loaded and running", () => {
+      const execSync = vi.fn((cmd: string) => {
+        if (cmd.includes("is-active cc-ping-daemon")) return "active\n";
+        if (cmd.includes("is-enabled cc-ping-daemon")) return "enabled\n";
+        if (cmd.includes("is-active cc-ping-watchdog.timer"))
+          return "inactive\n";
+        if (cmd.includes("is-enabled cc-ping-watchdog.timer")) {
+          return "enabled\n";
+        }
+        return "";
+      });
+      const deps = makeDeps({
+        platform: "linux",
+        existsSync: () => true,
+        execSync,
+      });
+
+      const status = getServiceStatus(deps);
+
+      expect(status.installed).toBe(true);
+      expect(status.loaded).toBe(true);
+      expect(status.running).toBe(true);
+      expect(status.watchdogInstalled).toBe(true);
+      expect(status.watchdogLoaded).toBe(true);
+      expect(status.watchdogActive).toBe(false);
+    });
+
+    it("reports deferred systemd services as installed but not loaded", () => {
+      const execSync = vi.fn(() => {
+        throw new Error("not enabled");
+      });
+      const deps = makeDeps({
+        platform: "linux",
+        existsSync: () => true,
+        execSync,
+      });
+
+      const status = getServiceStatus(deps);
+
+      expect(status.installed).toBe(true);
+      expect(status.loaded).toBe(false);
+      expect(status.running).toBe(false);
+      expect(status.watchdogLoaded).toBe(false);
+      expect(status.watchdogActive).toBe(false);
+    });
+
     it("reports the watchdog as missing when only the daemon service exists", () => {
       const deps = makeDeps({
         platform: "darwin",
