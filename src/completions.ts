@@ -1,5 +1,7 @@
 const COMMANDS =
-  "ping scan add remove list status next-reset history suggest check cleanup completions moo daemon";
+  "ping scan add remove list config reset status next-reset history suggest check cleanup completions moo notify daemon schedule";
+const SETTINGS =
+  "pingMode model promptStyle interactiveExitDelayMs interactiveReadyPattern interactiveReadyFallbackDelayMs";
 
 function bashCompletion(): string {
   return `_cc_ping() {
@@ -25,6 +27,23 @@ function bashCompletion(): string {
       ;;
     add)
       COMPREPLY=( $(compgen -W "--name --group" -- "\${cur}") )
+      ;;
+    config)
+      if [[ \${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=( $(compgen -W "show set" -- "\${cur}") )
+      elif [[ "\${COMP_WORDS[2]}" == "show" && "\${cur}" == -* ]]; then
+        COMPREPLY=( $(compgen -W "--json" -- "\${cur}") )
+      elif [[ "\${COMP_WORDS[2]}" == "set" && \${COMP_CWORD} -eq 3 ]]; then
+        COMPREPLY=( $(compgen -W "${SETTINGS}" -- "\${cur}") )
+      fi
+      ;;
+    reset)
+      if [[ \${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=( $(compgen -W "set clear" -- "\${cur}") )
+      else
+        local handles=$(cc-ping list 2>/dev/null | sed 's/ *\\(.*\\) ->.*/\\1/')
+        COMPREPLY=( $(compgen -W "\${handles}" -- "\${cur}") )
+      fi
       ;;
     list|history|status|next-reset|check)
       COMPREPLY=( $(compgen -W "--json" -- "\${cur}") )
@@ -64,6 +83,8 @@ _cc_ping() {
     'add:Add an account manually'
     'remove:Remove an account'
     'list:List configured accounts'
+    'config:Show or update settings'
+    'reset:Manage reset overrides'
     'status:Show account status'
     'next-reset:Show soonest quota reset'
     'history:Show ping history'
@@ -104,6 +125,17 @@ _cc_ping() {
           ;;
         completions)
           _arguments '1:shell:(bash zsh fish)'
+          ;;
+        config)
+          _arguments '1:subcommand:(show set)' '2:setting:(${SETTINGS})'
+          ;;
+        reset)
+          _arguments '1:subcommand:(set clear)' '*:handle:->handles'
+          if [[ $state == handles ]]; then
+            local -a handles
+            handles=(\${(f)"$(cc-ping list 2>/dev/null | sed 's/ *\\(.*\\) ->.*/\\1/')"})
+            _describe 'handle' handles
+          fi
           ;;
         list|history|status|next-reset|check)
           _arguments '--json[JSON output]'
@@ -159,7 +191,7 @@ _cc_ping
 
 function fishCompletion(): string {
   return `# Fish completions for cc-ping
-set -l commands ping scan add remove list status next-reset history suggest check cleanup completions moo
+set -l commands ping scan add remove list config reset status next-reset history suggest check cleanup completions moo notify daemon schedule
 
 complete -c cc-ping -f
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a ping -d "Ping configured accounts"
@@ -167,6 +199,8 @@ complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a scan -d "A
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a add -d "Add an account manually"
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a remove -d "Remove an account"
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a list -d "List configured accounts"
+complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a config -d "Show or update settings"
+complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a reset -d "Manage reset overrides"
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a status -d "Show account status"
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a next-reset -d "Show soonest quota reset"
 complete -c cc-ping -n "not __fish_seen_subcommand_from $commands" -a history -d "Show ping history"
@@ -192,6 +226,12 @@ complete -c cc-ping -n "__fish_seen_subcommand_from cleanup" -l json -d "JSON ou
 complete -c cc-ping -n "__fish_seen_subcommand_from add" -s n -l name -r -d "Override handle"
 complete -c cc-ping -n "__fish_seen_subcommand_from add" -s g -l group -r -d "Assign group"
 complete -c cc-ping -n "__fish_seen_subcommand_from completions" -a "bash zsh fish"
+complete -c cc-ping -n "__fish_seen_subcommand_from config; and not __fish_seen_subcommand_from show set" -a show -d "Show effective settings"
+complete -c cc-ping -n "__fish_seen_subcommand_from config; and not __fish_seen_subcommand_from show set" -a set -d "Set a setting"
+complete -c cc-ping -n "__fish_seen_subcommand_from config; and __fish_seen_subcommand_from show" -l json -d "JSON output"
+complete -c cc-ping -n "__fish_seen_subcommand_from config; and __fish_seen_subcommand_from set" -a "${SETTINGS}"
+complete -c cc-ping -n "__fish_seen_subcommand_from reset; and not __fish_seen_subcommand_from set clear" -a set -d "Set reset override"
+complete -c cc-ping -n "__fish_seen_subcommand_from reset; and not __fish_seen_subcommand_from set clear" -a clear -d "Clear reset override"
 
 complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from start stop status install uninstall" -a start -d "Start the daemon"
 complete -c cc-ping -n "__fish_seen_subcommand_from daemon; and not __fish_seen_subcommand_from start stop status install uninstall" -a stop -d "Stop the daemon"

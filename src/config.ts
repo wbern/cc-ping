@@ -2,7 +2,116 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveConfigDir } from "./paths.js";
 import { clearPingState } from "./state.js";
-import type { AccountConfig, Config, RemoteNotifyConfig } from "./types.js";
+import type {
+  AccountConfig,
+  Config,
+  PingMode,
+  PromptStyle,
+  RemoteNotifyConfig,
+  Settings,
+} from "./types.js";
+
+const DEFAULT_PING_MODE: PingMode = "print";
+const DEFAULT_INTERACTIVE_EXIT_DELAY_MS = 2500;
+const DEFAULT_INTERACTIVE_READY_PATTERN = "(\\u276f|>|›)[ \\u00a0]*";
+const DEFAULT_INTERACTIVE_READY_FALLBACK_DELAY_MS = 5000;
+const DEFAULT_PROMPT_STYLE: PromptStyle = "mixed";
+const DEFAULT_MODEL = "haiku";
+
+type SettingsKey = keyof Settings;
+
+function normalizePingMode(value: Settings["pingMode"]): PingMode {
+  if (value === "experimental-interactive" || value === "interactive") {
+    return "experimental-interactive";
+  }
+  return "print";
+}
+
+function validPromptStyle(value: unknown): value is PromptStyle {
+  return (
+    value === "mixed" ||
+    value === "math" ||
+    value === "trivia" ||
+    value === "tiny-chat" ||
+    value === "chess"
+  );
+}
+
+export function resolveSettings(
+  config: Config = loadConfig(),
+): Required<Settings> {
+  const settings = config.settings ?? {};
+  return {
+    pingMode: normalizePingMode(settings.pingMode ?? DEFAULT_PING_MODE),
+    interactiveExitDelayMs:
+      typeof settings.interactiveExitDelayMs === "number" &&
+      Number.isFinite(settings.interactiveExitDelayMs) &&
+      settings.interactiveExitDelayMs >= 0
+        ? settings.interactiveExitDelayMs
+        : DEFAULT_INTERACTIVE_EXIT_DELAY_MS,
+    interactiveReadyPattern:
+      typeof settings.interactiveReadyPattern === "string" &&
+      settings.interactiveReadyPattern.trim() !== ""
+        ? settings.interactiveReadyPattern
+        : DEFAULT_INTERACTIVE_READY_PATTERN,
+    interactiveReadyFallbackDelayMs:
+      typeof settings.interactiveReadyFallbackDelayMs === "number" &&
+      Number.isFinite(settings.interactiveReadyFallbackDelayMs) &&
+      settings.interactiveReadyFallbackDelayMs >= 0
+        ? settings.interactiveReadyFallbackDelayMs
+        : DEFAULT_INTERACTIVE_READY_FALLBACK_DELAY_MS,
+    promptStyle: validPromptStyle(settings.promptStyle)
+      ? settings.promptStyle
+      : DEFAULT_PROMPT_STYLE,
+    model:
+      typeof settings.model === "string" && settings.model.trim() !== ""
+        ? settings.model
+        : DEFAULT_MODEL,
+  };
+}
+
+function isSettingsKey(key: string): key is SettingsKey {
+  return (
+    key === "pingMode" ||
+    key === "interactiveExitDelayMs" ||
+    key === "interactiveReadyPattern" ||
+    key === "interactiveReadyFallbackDelayMs" ||
+    key === "promptStyle" ||
+    key === "model"
+  );
+}
+
+function parseSettingValue(
+  key: SettingsKey,
+  value: string,
+): Settings[SettingsKey] {
+  switch (key) {
+    case "pingMode":
+      if (value === "print" || value === "experimental-interactive") {
+        return value;
+      }
+      if (value === "legacy-print") return "print";
+      if (value === "interactive") return "experimental-interactive";
+      throw new Error("pingMode must be 'print' or 'experimental-interactive'");
+    case "interactiveExitDelayMs":
+    case "interactiveReadyFallbackDelayMs": {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+      throw new Error(`${key} must be a non-negative number`);
+    }
+    case "interactiveReadyPattern":
+      if (value.trim() !== "") return value;
+      throw new Error("interactiveReadyPattern must not be empty");
+    case "promptStyle":
+      if (validPromptStyle(value)) return value;
+      throw new Error(
+        "promptStyle must be 'mixed', 'math', 'trivia', 'tiny-chat', or 'chess'",
+      );
+    case "model":
+      if (value.trim() !== "") return value;
+      throw new Error("model must not be empty");
+  }
+}
 
 export function loadConfig(): Config {
   const configFile = join(resolveConfigDir(), "config.json");
@@ -92,6 +201,19 @@ export function clearNotifyCommand(): boolean {
   config.notifyCommand = undefined;
   saveConfig(config);
   return true;
+}
+
+export function setSetting(key: string, value: string): Required<Settings> {
+  if (!isSettingsKey(key)) {
+    throw new Error(`Unsupported setting: ${key}`);
+  }
+  const config = loadConfig();
+  config.settings = {
+    ...config.settings,
+    [key]: parseSettingValue(key, value),
+  };
+  saveConfig(config);
+  return resolveSettings(config);
 }
 
 export function resetSchedule(

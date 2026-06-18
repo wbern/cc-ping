@@ -13,7 +13,12 @@ vi.mock("node:os", async () => {
   };
 });
 
-const { scanAccounts } = await import("./scan.js");
+const {
+  buildScanCandidates,
+  mergeScannedAccounts,
+  parseScanSelection,
+  scanAccounts,
+} = await import("./scan.js");
 
 describe("scanAccounts", () => {
   beforeEach(() => {
@@ -126,5 +131,101 @@ describe("scanAccounts", () => {
     expect(handles).toEqual(["carol", "dave"]);
     expect(accounts[0].configDir).toBe(join(customDir, accounts[0].handle));
     rmSync(customDir, { recursive: true, force: true });
+  });
+
+  it("marks existing accounts selected and new accounts unselected", () => {
+    const candidates = buildScanCandidates(
+      [{ handle: "alice", configDir: "/tmp/alice", group: "work" }],
+      [
+        { handle: "alice", configDir: "/tmp/alice" },
+        { handle: "bob", configDir: "/tmp/bob" },
+      ],
+    );
+
+    expect(candidates).toEqual([
+      {
+        account: { handle: "alice", configDir: "/tmp/alice", group: "work" },
+        status: "existing",
+        selected: true,
+      },
+      {
+        account: { handle: "bob", configDir: "/tmp/bob" },
+        status: "new",
+        selected: false,
+      },
+    ]);
+  });
+
+  it("keeps configured accounts selected even when missing from scan", () => {
+    const candidates = buildScanCandidates(
+      [{ handle: "alice", configDir: "/tmp/alice" }],
+      [],
+    );
+
+    expect(candidates).toEqual([
+      {
+        account: { handle: "alice", configDir: "/tmp/alice" },
+        status: "missing",
+        selected: true,
+      },
+    ]);
+  });
+
+  it("parses default, all, none, list, and range selections", () => {
+    const candidates = buildScanCandidates(
+      [{ handle: "alice", configDir: "/tmp/alice" }],
+      [
+        { handle: "bob", configDir: "/tmp/bob" },
+        { handle: "charlie", configDir: "/tmp/charlie" },
+      ],
+    );
+
+    expect(parseScanSelection("", candidates)).toEqual([0]);
+    expect(parseScanSelection("all", candidates)).toEqual([0, 1, 2]);
+    expect(parseScanSelection("none", candidates)).toEqual([]);
+    expect(parseScanSelection("2", candidates)).toEqual([1]);
+    expect(parseScanSelection("1,3", candidates)).toEqual([0, 2]);
+    expect(parseScanSelection("1,,2", candidates)).toEqual([0, 1]);
+    expect(parseScanSelection("1-2", candidates)).toEqual([0, 1]);
+  });
+
+  it("rejects invalid selection input", () => {
+    const candidates = buildScanCandidates(
+      [],
+      [{ handle: "alice", configDir: "/tmp/alice" }],
+    );
+
+    expect(() => parseScanSelection("2", candidates)).toThrow(
+      "Selection out of range: 2",
+    );
+    expect(() => parseScanSelection("2-1", candidates)).toThrow(
+      "Invalid selection range: 2-1",
+    );
+    expect(() => parseScanSelection("wat", candidates)).toThrow(
+      "Invalid selection: wat",
+    );
+  });
+
+  it("merges selected scan accounts without dropping global config", () => {
+    const config = {
+      accounts: [{ handle: "alice", configDir: "/tmp/alice", group: "work" }],
+      remoteNotify: { url: "https://ntfy.sh/topic" },
+      settings: { promptStyle: "chess" as const },
+    };
+    const candidates = buildScanCandidates(config.accounts, [
+      { handle: "alice", configDir: "/tmp/alice" },
+      { handle: "bob", configDir: "/tmp/bob" },
+    ]);
+
+    const next = mergeScannedAccounts(config, candidates, [0, 1]);
+
+    expect(next).toEqual({
+      accounts: [
+        { handle: "alice", configDir: "/tmp/alice", group: "work" },
+        { handle: "bob", configDir: "/tmp/bob" },
+      ],
+      remoteNotify: { url: "https://ntfy.sh/topic" },
+      settings: { promptStyle: "chess" },
+    });
   });
 });

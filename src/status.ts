@@ -26,6 +26,8 @@ interface AccountStatus {
   lastPing: string | null;
   windowStatus: "active" | "needs ping" | "deferred" | "unknown";
   timeUntilReset: string | null;
+  resetSource?: string | null;
+  resetConfidence?: string | null;
   lastCostUsd: number | null;
   lastTokens: number | null;
   duplicateOf?: string;
@@ -64,7 +66,7 @@ export function censorHandle(handle: string): string {
   if (atIdx !== -1) {
     const local = handle.slice(0, atIdx);
     const domain = handle.slice(atIdx + 1);
-    return censorPart(local) + "@" + censorDomain(domain);
+    return `${censorPart(local)}@${censorDomain(domain)}`;
   }
   return censorDomain(handle);
 }
@@ -110,7 +112,11 @@ export function formatStatusLine(
   }
 
   if (status.timeUntilReset !== null) {
-    lines.push(`    - resets in ${status.timeUntilReset}`);
+    const source =
+      status.resetSource && status.resetConfidence
+        ? ` (${status.resetSource}/${status.resetConfidence})`
+        : "";
+    lines.push(`    - resets in ${status.timeUntilReset}${source}`);
   }
 
   if (status.deferReason) {
@@ -206,6 +212,8 @@ export function getAccountStatuses(
         lastPing: null,
         windowStatus: "unknown" as const,
         timeUntilReset: null,
+        resetSource: null,
+        resetConfidence: null,
         lastCostUsd,
         lastTokens,
         duplicateOf,
@@ -237,6 +245,8 @@ export function getAccountStatuses(
           ? ("deferred" as const)
           : ("needs ping" as const),
       timeUntilReset: window ? formatTimeRemaining(window.remainingMs) : null,
+      resetSource: window?.source ?? null,
+      resetConfidence: window?.confidence ?? null,
       lastCostUsd,
       lastTokens,
       duplicateOf,

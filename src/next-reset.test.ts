@@ -49,6 +49,8 @@ describe("getNextReset", () => {
     expect(result).not.toBeNull();
     expect(result!.handle).toBe("alice");
     expect(result!.timeUntilReset).toBe("2h 0m");
+    expect(result!.resetSource).toBe("estimated");
+    expect(result!.resetConfidence).toBe("low");
   });
 
   it("skips accounts with expired windows", () => {

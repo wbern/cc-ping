@@ -7,7 +7,13 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { resolveConfigDir } from "./paths.js";
-import type { PingMeta, PingState } from "./types.js";
+import type {
+  AccountTiming,
+  PingMeta,
+  PingState,
+  TimingConfidence,
+  TimingSource,
+} from "./types.js";
 
 export const QUOTA_WINDOW_MS = 5 * 60 * 60 * 1000; // 5 hours
 
@@ -43,6 +49,38 @@ function isPingMetaRecord(x: unknown): x is Record<string, PingMeta> {
   return true;
 }
 
+function isTimingSource(value: unknown): value is TimingSource {
+  return (
+    value === "estimated" ||
+    value === "parsed_rate_limit" ||
+    value === "manual_override"
+  );
+}
+
+function isTimingConfidence(value: unknown): value is TimingConfidence {
+  return value === "low" || value === "medium" || value === "high";
+}
+
+function isAccountTimingRecord(x: unknown): x is Record<string, AccountTiming> {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return false;
+  for (const v of Object.values(x)) {
+    if (!v || typeof v !== "object") return false;
+    const timing = v as Record<string, unknown>;
+    if (
+      typeof timing.sessionResetAt !== "string" ||
+      !isTimingSource(timing.source) ||
+      !isTimingConfidence(timing.confidence) ||
+      typeof timing.updatedAt !== "string"
+    ) {
+      return false;
+    }
+    if (timing.reason !== undefined && typeof timing.reason !== "string") {
+      return false;
+    }
+  }
+  return true;
+}
+
 function isPingState(x: unknown): x is PingState {
   if (!x || typeof x !== "object") return false;
   const s = x as Record<string, unknown>;
@@ -51,6 +89,12 @@ function isPingState(x: unknown): x is PingState {
     return false;
   }
   if (s.needsLogin !== undefined && !isStringRecord(s.needsLogin)) {
+    return false;
+  }
+  if (
+    s.accountTiming !== undefined &&
+    !isAccountTimingRecord(s.accountTiming)
+  ) {
     return false;
   }
   return true;
@@ -157,6 +201,10 @@ export function clearPingState(handle: string): boolean {
     delete state.needsLogin[handle];
     changed = true;
   }
+  if (state.accountTiming && handle in state.accountTiming) {
+    delete state.accountTiming[handle];
+    changed = true;
+  }
   if (changed) saveState(state);
   return changed;
 }
@@ -177,6 +225,11 @@ function collectOrphans(state: PingState, activeHandles: string[]): string[] {
       if (!active.has(h)) orphans.add(h);
     }
   }
+  if (state.accountTiming) {
+    for (const h of Object.keys(state.accountTiming)) {
+      if (!active.has(h)) orphans.add(h);
+    }
+  }
   return [...orphans];
 }
 
@@ -192,9 +245,46 @@ export function pruneOrphanState(activeHandles: string[]): string[] {
     delete state.lastPing[h];
     if (state.lastPingMeta) delete state.lastPingMeta[h];
     if (state.needsLogin) delete state.needsLogin[h];
+    if (state.accountTiming) delete state.accountTiming[h];
   }
   saveState(state);
   return orphans;
+}
+
+export function recordAccountTiming(
+  handle: string,
+  resetAt: Date,
+  source: TimingSource,
+  confidence: TimingConfidence,
+  now: Date = new Date(),
+  reason?: string,
+): void {
+  const state = loadState();
+  if (!state.accountTiming) state.accountTiming = {};
+  state.accountTiming[handle] = {
+    sessionResetAt: resetAt.toISOString(),
+    source,
+    confidence,
+    updatedAt: now.toISOString(),
+    ...(reason ? { reason } : {}),
+  };
+  saveState(state);
+}
+
+export function clearAccountTiming(handle: string): boolean {
+  const state = loadState();
+  if (!state.accountTiming || !(handle in state.accountTiming)) return false;
+  delete state.accountTiming[handle];
+  saveState(state);
+  return true;
+}
+
+export function getAccountTiming(handle: string): AccountTiming | null {
+  const timing = loadState().accountTiming?.[handle];
+  if (!timing) return null;
+  const resetAt = new Date(timing.sessionResetAt);
+  if (Number.isNaN(resetAt.getTime())) return null;
+  return timing;
 }
 
 export function getLastPing(handle: string): Date | null {
@@ -207,14 +297,34 @@ export function getLastPing(handle: string): Date | null {
 export function getWindowReset(
   handle: string,
   now: Date = new Date(),
-): { resetAt: Date; remainingMs: number } | null {
+): {
+  resetAt: Date;
+  remainingMs: number;
+  source: TimingSource;
+  confidence: TimingConfidence;
+} | null {
+  const timing = getAccountTiming(handle);
+  if (timing) {
+    const resetAt = new Date(timing.sessionResetAt);
+    const remainingMs = resetAt.getTime() - now.getTime();
+    if (remainingMs > 0) {
+      return {
+        resetAt,
+        remainingMs,
+        source: timing.source,
+        confidence: timing.confidence,
+      };
+    }
+    if (timing.source !== "manual_override") clearAccountTiming(handle);
+  }
+
   const lastPing = getLastPing(handle);
   if (!lastPing) return null;
   const resetAt = new Date(lastPing.getTime() + QUOTA_WINDOW_MS);
   const remainingMs = resetAt.getTime() - now.getTime();
   if (remainingMs <= 0) return null;
   if (remainingMs > QUOTA_WINDOW_MS) return null;
-  return { resetAt, remainingMs };
+  return { resetAt, remainingMs, source: "estimated", confidence: "low" };
 }
 
 export function formatTimeRemaining(ms: number): string {

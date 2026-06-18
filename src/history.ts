@@ -10,7 +10,9 @@ interface HistoryEntry {
   handle: string;
   success: boolean;
   durationMs: number;
+  failureReason?: string;
   error?: string;
+  quotaResetAt?: string;
 }
 
 function historyFile(): string {
@@ -25,7 +27,9 @@ export function appendHistoryEntry(entry: HistoryEntry): void {
 
 export function formatHistoryEntry(entry: HistoryEntry, now?: Date): string {
   const status = entry.success ? "ok" : "FAIL";
-  const error = entry.error ? ` (${entry.error})` : "";
+  const reason = entry.failureReason ? `${entry.failureReason}: ` : "";
+  const reset = entry.quotaResetAt ? `; reset ${entry.quotaResetAt}` : "";
+  const error = entry.error ? ` (${reason}${entry.error}${reset})` : "";
   const time = now ? formatTimeAgo(entry.timestamp, now) : entry.timestamp;
   return `  ${time}  ${entry.handle}: ${status} ${entry.durationMs}ms${error}`;
 }

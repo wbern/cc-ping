@@ -31,6 +31,8 @@ const {
   getNotifyCommand,
   setNotifyCommand,
   clearNotifyCommand,
+  resolveSettings,
+  setSetting,
 } = await import("./config.js");
 const { recordPing, loadState } = await import("./state.js");
 
@@ -247,5 +249,120 @@ describe("config", () => {
 
   it("returns false when clearing an unset notify command", () => {
     expect(clearNotifyCommand()).toBe(false);
+  });
+
+  it("resolves settings with safe defaults", () => {
+    expect(resolveSettings()).toEqual({
+      pingMode: "print",
+      interactiveExitDelayMs: 2500,
+      interactiveReadyPattern: "(\\u276f|>|›)[ \\u00a0]*",
+      interactiveReadyFallbackDelayMs: 5000,
+      promptStyle: "mixed",
+      model: "haiku",
+    });
+  });
+
+  it("normalizes setting aliases", () => {
+    saveConfig({
+      accounts: [],
+      settings: { pingMode: "legacy-print", promptStyle: "chess" },
+    });
+
+    expect(resolveSettings().pingMode).toBe("print");
+    expect(resolveSettings().promptStyle).toBe("chess");
+    expect(
+      resolveSettings({ accounts: [], settings: { pingMode: "interactive" } })
+        .pingMode,
+    ).toBe("experimental-interactive");
+  });
+
+  it("falls back from invalid persisted settings", () => {
+    const settings = resolveSettings({
+      accounts: [],
+      settings: {
+        interactiveExitDelayMs: Number.NaN,
+        interactiveReadyPattern: " ",
+        interactiveReadyFallbackDelayMs: -1,
+        promptStyle: "wat" as never,
+        model: "",
+      },
+    });
+
+    expect(settings.interactiveExitDelayMs).toBe(2500);
+    expect(settings.interactiveReadyPattern).toBe("(\\u276f|>|›)[ \\u00a0]*");
+    expect(settings.interactiveReadyFallbackDelayMs).toBe(5000);
+    expect(settings.promptStyle).toBe("mixed");
+    expect(settings.model).toBe("haiku");
+  });
+
+  it("resolves valid custom interactive settings", () => {
+    const settings = resolveSettings({
+      accounts: [],
+      settings: {
+        interactiveExitDelayMs: 750,
+        interactiveReadyPattern: "READY>",
+        interactiveReadyFallbackDelayMs: 1250,
+      },
+    });
+
+    expect(settings.interactiveExitDelayMs).toBe(750);
+    expect(settings.interactiveReadyPattern).toBe("READY>");
+    expect(settings.interactiveReadyFallbackDelayMs).toBe(1250);
+  });
+
+  it("sets validated settings while preserving other config", () => {
+    saveConfig({
+      accounts: [{ handle: "acct1", configDir: "/path" }],
+      remoteNotify: { url: "https://ntfy.sh/topic" },
+    });
+
+    const settings = setSetting("pingMode", "experimental-interactive");
+    setSetting("model", "sonnet");
+    setSetting("promptStyle", "chess");
+
+    expect(settings.pingMode).toBe("experimental-interactive");
+    expect(loadConfig()).toEqual({
+      accounts: [{ handle: "acct1", configDir: "/path" }],
+      remoteNotify: { url: "https://ntfy.sh/topic" },
+      settings: expect.objectContaining({
+        pingMode: "experimental-interactive",
+        model: "sonnet",
+        promptStyle: "chess",
+      }),
+    });
+  });
+
+  it("sets compatibility aliases and interactive numeric settings", () => {
+    expect(setSetting("pingMode", "legacy-print").pingMode).toBe("print");
+    expect(setSetting("pingMode", "interactive").pingMode).toBe(
+      "experimental-interactive",
+    );
+    expect(
+      setSetting("interactiveExitDelayMs", "750").interactiveExitDelayMs,
+    ).toBe(750);
+    expect(
+      setSetting("interactiveReadyFallbackDelayMs", "1250")
+        .interactiveReadyFallbackDelayMs,
+    ).toBe(1250);
+    expect(
+      setSetting("interactiveReadyPattern", "READY>").interactiveReadyPattern,
+    ).toBe("READY>");
+  });
+
+  it("rejects unsupported setting keys and invalid values", () => {
+    expect(() => setSetting("nope", "x")).toThrow("Unsupported setting: nope");
+    expect(() => setSetting("pingMode", "x")).toThrow(
+      "pingMode must be 'print' or 'experimental-interactive'",
+    );
+    expect(() => setSetting("interactiveExitDelayMs", "-1")).toThrow(
+      "interactiveExitDelayMs must be a non-negative number",
+    );
+    expect(() => setSetting("interactiveReadyPattern", "")).toThrow(
+      "interactiveReadyPattern must not be empty",
+    );
+    expect(() => setSetting("promptStyle", "x")).toThrow(
+      "promptStyle must be 'mixed', 'math', 'trivia', 'tiny-chat', or 'chess'",
+    );
+    expect(() => setSetting("model", "")).toThrow("model must not be empty");
   });
 });

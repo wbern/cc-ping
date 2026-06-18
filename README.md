@@ -30,12 +30,29 @@ Claude Code has a 5-hour quota window that starts on your first message. If you 
 
 Zero telemetry. No data is collected, sent, or phoned home. Everything stays in `~/.config/cc-ping/`. The only network activity is the `claude` CLI call itself, which is subject to Anthropic's normal Claude Code telemetry.
 
+## Safety and subscription caveats
+
+cc-ping is an unofficial local personal-use helper and educational experiment for exploring Claude Code session timing, quota windows, and CLI automation. It is not made, endorsed, reviewed, or supported by Anthropic.
+
+I cannot guarantee that this kind of usage will continue to be accepted under Claude subscription plans. Anthropic controls how Claude Code, `claude -p`, Agent SDK, and third-party automation usage count against plans, and these rules can change.
+
+Anthropic's current support article says the previously announced Agent SDK / `claude -p` subscription change is paused: "For now, nothing has changed." It also says Claude Agent SDK, `claude -p`, and third-party app usage still draw from subscription usage limits, and Anthropic will "share it before anything takes effect." See [Use the Claude Agent SDK with your Claude plan](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan). Treat this as a moving policy area, not a permanent guarantee.
+
+Important limits:
+
+- cc-ping may consume Claude subscription usage or quota.
+- cc-ping depends on the local `claude` CLI behavior, output, authentication state, and plan limits.
+- `experimental-interactive` simulates terminal interaction and is less stable than the default `print` mode.
+- Real Claude tests are opt-in because they may consume quota.
+- This is intended for local personal automation, not shared production automation at scale.
+
 ## Prerequisites
 
-[Claude Code](https://docs.anthropic.com/en/docs/claude-code) must be installed and on your PATH.
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code) must be installed and on your PATH. `expect` is only required for `experimental-interactive` pings.
 
 ```bash
 claude --version   # verify it's available
+expect -v          # optional: verify experimental PTY automation is available
 ```
 
 ## Install
@@ -94,6 +111,7 @@ Discover accounts from `~` (or a custom directory), then verify they have valid 
 ```bash
 cc-ping scan              # auto-discover accounts from ~
 cc-ping scan /path/to/dir # scan a specific directory
+cc-ping scan --yes        # non-interactive: keep configured + all discovered
 cc-ping check             # verify credentials are valid
 cc-ping login <handle>    # re-authenticate an account that lost its session
 cc-ping list              # show configured accounts
@@ -117,6 +135,8 @@ cc-ping ping --stagger 5              # wait 5 min between each account
 cc-ping status                        # show account status table
 cc-ping suggest                       # which account should I use next?
 cc-ping next-reset                    # when does the next window expire?
+cc-ping config show                   # show effective settings
+cc-ping config set pingMode experimental-interactive
 cc-ping daemon start                  # auto-ping every 5 hours
 cc-ping history                       # recent ping results
 ```
@@ -139,7 +159,7 @@ Ping configured accounts to start their quota windows. Pings accounts sequential
 
 ### `cc-ping status`
 
-Show all accounts with their quota window state — whether they have an active window, when it resets, whether they're covered by recent Claude Code usage, and duplicate detection.
+Show all accounts with their quota window state — whether they have an active window, when it resets, reset source/confidence, whether they're covered by recent Claude Code usage, and duplicate detection. A reset shown as `estimated/low` comes from `lastPing + 5h`, not from Claude.
 
 ### `cc-ping suggest`
 
@@ -147,11 +167,19 @@ Recommend which account to use next based on quota window state. Prefers account
 
 ### `cc-ping next-reset`
 
-Show which account has its quota window resetting soonest — useful for knowing when capacity frees up.
+Show which account has its quota window resetting soonest — useful for knowing when capacity frees up. Output includes whether the reset is estimated, parsed from a rate-limit message, or manually overridden.
 
 ### `cc-ping scan`
 
 Auto-discover Claude Code accounts. Scans `~` by default, or pass a directory to scan. Each subdirectory containing a `.claude.json` is detected as an account. Duplicate identities (same `accountUuid` across directories) are flagged. The default `~` scan skips system and cloud-sync folders (Documents, Pictures, Google Drive, Dropbox, …) to avoid triggering macOS permission prompts; an explicitly provided directory is searched verbatim.
+
+By default, `scan` opens an interactive checklist. Existing configured accounts are selected by default, newly discovered accounts are marked `new` and unselected by default, and configured accounts missing from the scan remain selected unless you remove them. In non-interactive environments, `scan` will not save unless you pass `--yes`, which keeps all configured and discovered accounts.
+
+```bash
+cc-ping scan
+cc-ping scan --dry-run
+cc-ping scan --yes
+```
 
 ### `cc-ping check`
 
@@ -179,9 +207,37 @@ Remove orphan state entries for handles that are no longer in the configuration 
 
 List all configured accounts with their config directory paths.
 
+### `cc-ping config`
+
+Show or update settings without hand-editing JSON:
+
+```bash
+cc-ping config show
+cc-ping config show --json
+cc-ping config set pingMode print
+cc-ping config set pingMode experimental-interactive
+cc-ping config set model haiku
+cc-ping config set interactiveExitDelayMs 2500
+cc-ping config set interactiveReadyPattern "(\\u276f|>|›)[ \\u00a0]*"
+cc-ping config set interactiveReadyFallbackDelayMs 5000
+cc-ping config set promptStyle mixed
+cc-ping config set promptStyle chess
+```
+
+### `cc-ping reset`
+
+Set or clear account-level reset overrides when Claude shows a reset time that cc-ping cannot observe or parse:
+
+```bash
+cc-ping reset set alice "2026-06-18T15:00:00"
+cc-ping reset clear alice
+```
+
+Manual overrides appear as `manual_override/high` in `status` and `next-reset`.
+
 ### `cc-ping history`
 
-Show recent ping results — handle, success/failure, duration, cost.
+Show recent ping results — handle, success/failure, duration, failure reason, and parsed reset timestamp when available.
 
 ### `cc-ping schedule reset [handle]`
 
@@ -356,26 +412,62 @@ cc-ping completions fish > ~/.config/fish/completions/cc-ping.fish
 
 ## How it works
 
-Each ping spawns the `claude` CLI with a trivial arithmetic prompt:
+By default, each ping uses Claude Code print mode, which is the documented non-interactive automation path:
 
 ```bash
-claude -p "Quick, take a guess: what is 2847 + 6192?" \
-  --output-format json \
-  --tools "" \
-  --max-turns 1
+claude -p "$CC_PING_PROMPT" --model haiku --output-format json --no-session-persistence --tools "" --max-turns 1
 ```
 
 The account is selected by setting `CLAUDE_CONFIG_DIR` to the account's config directory, so the `claude` CLI authenticates as that account.
 
 Key design choices:
 
-- **Arithmetic prompts** — random math questions minimize token usage (~150 input tokens, ~10 output). Templates and operands are randomized to avoid cache hits across pings.
+- **Prompt variety** — the prompt pool includes math, stable trivia, tiny-chat, and FEN-based chess questions, so pings do not all look like arithmetic drills.
+- **Default print mode** — `print` is the default because `claude -p` is the documented non-interactive path, supports JSON metadata, and can avoid session persistence.
+- **Model selection** — pings default to `haiku`; set `settings.model` to another alias or full model name if needed.
 - **Tools disabled** — `--tools ""` prevents the model from doing anything beyond answering the question.
 - **Single turn** — `--max-turns 1` ensures one request-response cycle, no follow-ups.
+- **Experimental interactive PTY** — set `settings.pingMode` to `experimental-interactive` to type the prompt into a real Claude Code terminal session through `expect`. This mode is newer, less tried-and-true, and more sensitive to terminal UI changes.
+- **Ready fallback** — if Claude's startup prompt changes in experimental interactive mode, `interactiveReadyPattern` can be adjusted and `interactiveReadyFallbackDelayMs` provides a conservative startup delay fallback before sending the first prompt.
 - **30s timeout with hard kill** — pings that take longer are sent SIGKILL. A backstop timer force-resolves the promise even if the child process doesn't exit cleanly.
-- **Cost tracking** — each ping records its USD cost and token usage so you can audit spend.
+- **Structured failures** — ping results include stable failure reasons for common interactive failures and actionable errors for auth, billing, permission, server, and rate-limit responses.
+- **Reset source/confidence** — `lastPing + 5h` is kept as an `estimated/low` reset. Parsed rate-limit messages are stored as `parsed_rate_limit/medium`; manual overrides are stored as `manual_override/high`.
+- **Transcript hygiene** — print mode is the default because Claude Code documents `--no-session-persistence` for `claude -p`, and `CLAUDE_CODE_SKIP_PROMPT_HISTORY` can suppress transcript writes in any mode. Experimental interactive pings behave more like normal Claude sessions unless transcript history is disabled.
+- **Cost tracking** — each successful print-mode ping records its USD cost and token usage so you can audit spend.
 
-After a successful ping, the account's last-ping timestamp is saved to `~/.config/cc-ping/state.json`. The 5-hour quota window is calculated from this timestamp — commands like `status`, `suggest`, and the daemon all use it to determine window state.
+Automated tests use mocks and fake Claude behavior. `pnpm test:e2e` uses a fake `claude` executable and does not touch real Claude. Local account scanning and real Claude pings remain opt-in through `E2E_SCAN=1`, `E2E_PING=1`, or `E2E_PING_PRINT=1`.
+
+Optional settings in `~/.config/cc-ping/config.json`:
+
+```json
+{
+  "accounts": [
+    { "handle": "alice", "configDir": "/Users/me/.claude-accounts/alice" }
+  ],
+  "settings": {
+    "pingMode": "print",
+    "model": "haiku",
+    "interactiveExitDelayMs": 2500,
+    "interactiveReadyPattern": "(\\u276f|>|›)[ \\u00a0]*",
+    "interactiveReadyFallbackDelayMs": 5000,
+    "promptStyle": "mixed"
+  }
+}
+```
+
+Use `"pingMode": "experimental-interactive"` to enable the experimental PTY behavior. `print` is the default. Existing configs that still use `"legacy-print"` are treated as `print`.
+
+Prompt styles:
+
+| Style | Behavior |
+|-------|----------|
+| `mixed` | Math, trivia, tiny-chat, and chess prompts |
+| `math` | Arithmetic prompts only |
+| `trivia` | Short stable knowledge/common-sense prompts |
+| `tiny-chat` | Small conversational prompts |
+| `chess` | FEN-based square, piece, and occupancy questions |
+
+After a successful ping, the account's last-ping timestamp is saved to `~/.config/cc-ping/state.json`. If Claude returns a rate-limit message with a reset time, cc-ping stores that parsed reset and treats the account as unavailable until then. If no parsed or manual reset exists, commands like `status`, `suggest`, and the daemon fall back to the approximate `lastPing + 5h` estimate.
 
 ## Privacy
 
@@ -386,12 +478,12 @@ All data stays local in `~/.config/cc-ping/`:
 | File | Contents |
 |------|----------|
 | `config.json` | Account names and config directory paths |
-| `state.json` | Last ping timestamp and cost metadata per account |
-| `history.jsonl` | Ping history (timestamp, handle, success/failure, duration) |
+| `state.json` | Last ping timestamp, reset source/confidence, auth flags, and cost metadata per account |
+| `history.jsonl` | Ping history (timestamp, handle, success/failure, duration, failure reason, parsed reset) |
 | `daemon.json` | Daemon PID, interval, start time |
 | `daemon.log` | Daemon output log |
 
-The only network activity is the `claude` CLI call itself, which communicates with Anthropic's API under their standard [terms](https://www.anthropic.com/terms) and [privacy policy](https://www.anthropic.com/privacy). cc-ping does not intercept, modify, or inspect this traffic beyond reading the JSON response for cost metadata.
+The only network activity is the `claude` CLI call itself, which communicates with Anthropic's API under their standard [terms](https://www.anthropic.com/terms) and [privacy policy](https://www.anthropic.com/privacy). cc-ping does not intercept or modify this traffic.
 
 ## License
 

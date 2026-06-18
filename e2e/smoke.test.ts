@@ -1,7 +1,8 @@
 /**
  * E2E smoke tests — run manually against real accounts on this machine.
  *
- *   pnpm test:e2e          # scan only
+ *   pnpm test:e2e          # fake CLI only, no real Claude account required
+ *   E2E_SCAN=1 pnpm test:e2e # scan local account directories
  *   pnpm test:e2e:ping     # scan + real ping (uses quota)
  */
 
@@ -15,33 +16,34 @@ import { scanAccounts } from "../src/scan.js";
 
 const accountsDir = join(homedir(), ".claude-accounts");
 
-describe("account discovery", () => {
-  it("~/.claude-accounts/ directory exists", () => {
-    expect(
-      existsSync(accountsDir),
-      `Expected ${accountsDir} to exist`,
-    ).toBe(true);
-  });
-
-  it("discovers at least one account", () => {
-    const accounts = scanAccounts();
-    expect(accounts.length).toBeGreaterThan(0);
-    console.log(
-      `Found ${accounts.length} account(s): ${accounts.map((a) => a.handle).join(", ")}`,
-    );
-  });
-
-  it("each discovered account has a valid configDir", () => {
-    const accounts = scanAccounts();
-    for (const account of accounts) {
-      expect(account.handle).toBeTruthy();
+describe.skipIf(!process.env.E2E_SCAN && !process.env.E2E_PING)(
+  "account discovery",
+  () => {
+    it("~/.claude-accounts/ directory exists", () => {
       expect(
-        existsSync(account.configDir),
-        `configDir missing for ${account.handle}: ${account.configDir}`,
+        existsSync(accountsDir),
+        `Expected ${accountsDir} to exist`,
       ).toBe(true);
-    }
-  });
-});
+    });
+
+    it("discovers at least one account", () => {
+      const accounts = scanAccounts();
+      expect(accounts.length).toBeGreaterThan(0);
+      console.log(`Found ${accounts.length} account(s).`);
+    });
+
+    it("each discovered account has a valid configDir", () => {
+      const accounts = scanAccounts();
+      for (const account of accounts) {
+        expect(account.handle).toBeTruthy();
+        expect(
+          existsSync(account.configDir),
+          `configDir missing for ${account.handle}: ${account.configDir}`,
+        ).toBe(true);
+      }
+    });
+  },
+);
 
 describe.skipIf(!process.env.E2E_PING)("ping", () => {
   let result: PingResult;
@@ -64,6 +66,26 @@ describe.skipIf(!process.env.E2E_PING)("ping", () => {
   it("successfully pings the first discovered account", () => {
     expect(result.success).toBe(true);
   });
+
+  it("returns claudeResponse metadata in default print mode", () => {
+    expect(result.claudeResponse).toBeDefined();
+  });
+});
+
+describe.skipIf(!process.env.E2E_PING_PRINT)("print ping", () => {
+  let result: PingResult;
+
+  beforeAll(async () => {
+    const accounts = scanAccounts();
+    expect(accounts.length).toBeGreaterThan(0);
+
+    const [first] = accounts;
+    console.log(`Pinging ${first.handle} in print mode...`);
+    const results = await pingAccounts([first], { mode: "print" });
+
+    expect(results).toHaveLength(1);
+    result = results[0];
+  }, 60_000);
 
   it("returns claudeResponse with valid metadata", () => {
     expect(result.claudeResponse).toBeDefined();

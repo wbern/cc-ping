@@ -160,4 +160,31 @@ describe("formatHistoryEntry", () => {
     expect(line).toContain("FAIL");
     expect(line).toContain("timed out");
   });
+
+  it("formats a failed entry with failure reason", () => {
+    const line = formatHistoryEntry({
+      timestamp: "2025-01-01T00:00:00.000Z",
+      handle: "bob",
+      success: false,
+      durationMs: 200,
+      failureReason: "not_authenticated",
+      error: "Claude requires login",
+    });
+    expect(line).toContain("not_authenticated");
+    expect(line).toContain("Claude requires login");
+  });
+
+  it("formats quota reset metadata on failed entries", () => {
+    const line = formatHistoryEntry({
+      timestamp: "2025-01-01T00:00:00.000Z",
+      handle: "bob",
+      success: false,
+      durationMs: 200,
+      error: "session limit reached",
+      quotaResetAt: "2025-01-01T05:00:00.000Z",
+    });
+
+    expect(line).toContain("session limit reached");
+    expect(line).toContain("reset 2025-01-01T05:00:00.000Z");
+  });
 });

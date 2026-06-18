@@ -304,7 +304,14 @@ describe("runPing", () => {
   it("outputs JSON when json option is true", async () => {
     mockPingAccounts.mockResolvedValue([
       { handle: "alice", success: true, durationMs: 100 },
-      { handle: "bob", success: false, durationMs: 200, error: "timed out" },
+      {
+        handle: "bob",
+        success: false,
+        durationMs: 200,
+        failureReason: "rate_limited",
+        error: "weekly limit (resets 9pm)",
+        rateLimitResetAt: new Date("2026-06-09T21:00:00.000Z"),
+      },
     ]);
     const stdout = vi.fn();
     const stderr = vi.fn();
@@ -329,7 +336,9 @@ describe("runPing", () => {
     expect(parsed[0].success).toBe(true);
     expect(parsed[1].handle).toBe("bob");
     expect(parsed[1].success).toBe(false);
-    expect(parsed[1].error).toBe("timed out");
+    expect(parsed[1].failureReason).toBe("rate_limited");
+    expect(parsed[1].error).toBe("weekly limit (resets 9pm)");
+    expect(parsed[1].quotaResetAt).toBe("2026-06-09T21:00:00.000Z");
   });
 
   it("defaults to console.log when stdout not provided", async () => {

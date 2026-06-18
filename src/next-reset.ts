@@ -7,6 +7,8 @@ interface NextResetResult {
   remainingMs: number;
   resetAt: string;
   timeUntilReset: string;
+  resetSource: string;
+  resetConfidence: string;
 }
 
 export function getNextReset(
@@ -25,6 +27,8 @@ export function getNextReset(
         remainingMs: window.remainingMs,
         resetAt: window.resetAt.toISOString(),
         timeUntilReset: formatTimeRemaining(window.remainingMs),
+        resetSource: window.source,
+        resetConfidence: window.confidence,
       };
     }
   }

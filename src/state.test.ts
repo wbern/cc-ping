@@ -33,6 +33,9 @@ const {
   recordAuthFailure,
   clearAuthFailure,
   getAccountsNeedingLogin,
+  recordAccountTiming,
+  clearAccountTiming,
+  getAccountTiming,
 } = await import("./state.js");
 
 describe("state", () => {
@@ -191,6 +194,75 @@ describe("state", () => {
         readdirSync(stateDir).some((f) => f.startsWith("state.json.corrupt")),
       ).toBe(true);
     });
+
+    it("quarantines state with malformed account timing", () => {
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(
+        join(stateDir, "state.json"),
+        JSON.stringify({
+          lastPing: {},
+          accountTiming: {
+            alice: {
+              sessionResetAt: "2025-01-01T05:00:00.000Z",
+              source: "unknown",
+              confidence: "high",
+              updatedAt: "2025-01-01T00:00:00.000Z",
+            },
+          },
+        }),
+      );
+      expect(loadState()).toEqual({ lastPing: {} });
+      expect(
+        readdirSync(stateDir).some((f) => f.startsWith("state.json.corrupt")),
+      ).toBe(true);
+    });
+
+    it("quarantines state with non-object account timing", () => {
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(
+        join(stateDir, "state.json"),
+        JSON.stringify({ lastPing: {}, accountTiming: [] }),
+      );
+      expect(loadState()).toEqual({ lastPing: {} });
+      expect(
+        readdirSync(stateDir).some((f) => f.startsWith("state.json.corrupt")),
+      ).toBe(true);
+    });
+
+    it("quarantines state with non-object account timing entry", () => {
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(
+        join(stateDir, "state.json"),
+        JSON.stringify({ lastPing: {}, accountTiming: { alice: "bad" } }),
+      );
+      expect(loadState()).toEqual({ lastPing: {} });
+      expect(
+        readdirSync(stateDir).some((f) => f.startsWith("state.json.corrupt")),
+      ).toBe(true);
+    });
+
+    it("quarantines state with non-string account timing reason", () => {
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(
+        join(stateDir, "state.json"),
+        JSON.stringify({
+          lastPing: {},
+          accountTiming: {
+            alice: {
+              sessionResetAt: "2025-01-01T05:00:00.000Z",
+              source: "manual_override",
+              confidence: "high",
+              updatedAt: "2025-01-01T00:00:00.000Z",
+              reason: 123,
+            },
+          },
+        }),
+      );
+      expect(loadState()).toEqual({ lastPing: {} });
+      expect(
+        readdirSync(stateDir).some((f) => f.startsWith("state.json.corrupt")),
+      ).toBe(true);
+    });
   });
 
   describe("saveState", () => {
@@ -339,6 +411,8 @@ describe("state", () => {
       expect(result).not.toBeNull();
       expect(result?.resetAt.toISOString()).toBe("2025-01-01T05:00:00.000Z");
       expect(result?.remainingMs).toBe(4 * 60 * 60 * 1000); // 4 hours
+      expect(result?.source).toBe("estimated");
+      expect(result?.confidence).toBe("low");
     });
 
     it("returns null when clock drift makes remainingMs exceed quota window", () => {
@@ -347,6 +421,82 @@ describe("state", () => {
       const now = new Date();
       const result = getWindowReset("alice", now);
       expect(result).toBeNull();
+    });
+
+    it("prefers active manual timing over estimated ping windows", () => {
+      recordPing("alice", new Date("2025-01-01T00:00:00.000Z"));
+      recordAccountTiming(
+        "alice",
+        new Date("2025-01-01T08:00:00.000Z"),
+        "manual_override",
+        "high",
+        new Date("2025-01-01T01:00:00.000Z"),
+      );
+
+      const result = getWindowReset(
+        "alice",
+        new Date("2025-01-01T02:00:00.000Z"),
+      );
+
+      expect(result?.resetAt.toISOString()).toBe("2025-01-01T08:00:00.000Z");
+      expect(result?.source).toBe("manual_override");
+      expect(result?.confidence).toBe("high");
+      expect(getAccountTiming("alice")?.source).toBe("manual_override");
+      expect(clearAccountTiming("alice")).toBe(true);
+      expect(getAccountTiming("alice")).toBeNull();
+    });
+
+    it("stores optional account timing reasons", () => {
+      recordAccountTiming(
+        "alice",
+        new Date("2025-01-01T08:00:00.000Z"),
+        "manual_override",
+        "high",
+        new Date("2025-01-01T00:00:00.000Z"),
+        "manual override",
+      );
+
+      expect(getAccountTiming("alice")?.reason).toBe("manual override");
+    });
+
+    it("returns null for invalid account timing timestamps", () => {
+      saveState({
+        lastPing: {},
+        accountTiming: {
+          alice: {
+            sessionResetAt: "not-a-date",
+            source: "manual_override",
+            confidence: "high",
+            updatedAt: "2025-01-01T00:00:00.000Z",
+          },
+        },
+      });
+
+      expect(getAccountTiming("alice")).toBeNull();
+    });
+
+    it("returns false when clearing missing account timing", () => {
+      expect(clearAccountTiming("missing")).toBe(false);
+    });
+
+    it("clears expired parsed timing and falls back to estimated ping window", () => {
+      recordPing("alice", new Date("2025-01-01T00:00:00.000Z"));
+      recordAccountTiming(
+        "alice",
+        new Date("2025-01-01T01:00:00.000Z"),
+        "parsed_rate_limit",
+        "medium",
+        new Date("2025-01-01T00:30:00.000Z"),
+      );
+
+      const result = getWindowReset(
+        "alice",
+        new Date("2025-01-01T02:00:00.000Z"),
+      );
+
+      expect(result?.resetAt.toISOString()).toBe("2025-01-01T05:00:00.000Z");
+      expect(result?.source).toBe("estimated");
+      expect(getAccountTiming("alice")).toBeNull();
     });
   });
 
@@ -462,6 +612,17 @@ describe("state", () => {
       expect(clearPingState("orphan")).toBe(true);
       expect(getAccountsNeedingLogin()).toEqual([]);
     });
+
+    it("removes account timing along with ping state", () => {
+      recordAccountTiming(
+        "alice",
+        new Date("2025-01-01T08:00:00.000Z"),
+        "manual_override",
+        "high",
+      );
+      expect(clearPingState("alice")).toBe(true);
+      expect(getAccountTiming("alice")).toBeNull();
+    });
   });
 
   describe("findOrphanHandles", () => {
@@ -504,6 +665,21 @@ describe("state", () => {
       saveState({
         lastPing: { alice: "2025-03-15T10:00:00.000Z" },
         needsLogin: { stranded: "2025-03-15T10:00:00.000Z" },
+      });
+      expect(findOrphanHandles(["alice"])).toEqual(["stranded"]);
+    });
+
+    it("finds orphans present only in accountTiming", () => {
+      saveState({
+        lastPing: { alice: "2025-03-15T10:00:00.000Z" },
+        accountTiming: {
+          stranded: {
+            sessionResetAt: "2025-03-15T15:00:00.000Z",
+            source: "manual_override",
+            confidence: "high",
+            updatedAt: "2025-03-15T10:00:00.000Z",
+          },
+        },
       });
       expect(findOrphanHandles(["alice"])).toEqual(["stranded"]);
     });
@@ -553,6 +729,23 @@ describe("state", () => {
       const state = loadState();
       expect(state.needsLogin?.ghost).toBeUndefined();
       expect(state.needsLogin?.alice).toBe("2025-03-15T10:00:00.000Z");
+    });
+
+    it("removes orphan entries from accountTiming", () => {
+      saveState({
+        lastPing: { alice: "2025-03-15T10:00:00.000Z" },
+        accountTiming: {
+          ghost: {
+            sessionResetAt: "2025-03-15T15:00:00.000Z",
+            source: "manual_override",
+            confidence: "high",
+            updatedAt: "2025-03-15T10:00:00.000Z",
+          },
+        },
+      });
+
+      expect(pruneOrphanState(["alice"])).toEqual(["ghost"]);
+      expect(loadState().accountTiming?.ghost).toBeUndefined();
     });
   });
 

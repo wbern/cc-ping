@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
 import { checkAccounts } from "./check.js";
 import { yellow } from "./color.js";
@@ -12,11 +13,14 @@ import {
   getNotifyCommand,
   getRemoteNotify,
   listAccounts,
+  loadConfig,
   removeAccount,
   resetSchedule,
+  resolveSettings,
   saveConfig,
   setNotifyCommand,
   setRemoteNotifyUrl,
+  setSetting,
 } from "./config.js";
 import {
   getDaemonStatus,
@@ -47,7 +51,12 @@ import {
 import { setConfigDir } from "./paths.js";
 import { sendRemoteNotification } from "./remote-notify.js";
 import { runPing } from "./run-ping.js";
-import { scanAccounts } from "./scan.js";
+import {
+  buildScanCandidates,
+  mergeScannedAccounts,
+  parseScanSelection,
+  scanAccounts,
+} from "./scan.js";
 import {
   checkRecentActivity,
   parseSmartSchedule,
@@ -56,9 +65,11 @@ import {
 } from "./schedule.js";
 import { parseStagger } from "./stagger.js";
 import {
+  clearAccountTiming,
   findOrphanHandles,
   getAccountsNeedingLogin,
   pruneOrphanState,
+  recordAccountTiming,
 } from "./state.js";
 import type { DeferInfo } from "./status.js";
 import { getAccountStatuses, printAccountTable } from "./status.js";
@@ -259,22 +270,77 @@ program
   )
   .argument("[dir]", "Directory to scan (default: ~)")
   .option("--dry-run", "Show what would be added without saving", false)
-  .action((dir, opts) => {
+  .option(
+    "--yes",
+    "Non-interactive: keep configured accounts and add all discovered accounts",
+    false,
+  )
+  .action(async (dir, opts) => {
     const scanDir = dir ? resolve(dir) : undefined;
     const found = scanAccounts(scanDir);
-    if (found.length === 0) {
+    const config = loadConfig();
+    const candidates = buildScanCandidates(config.accounts, found);
+    if (candidates.length === 0) {
       console.log(`No accounts found in ${scanDir ?? "~"}`);
       return;
     }
-    console.log(`Found ${found.length} account(s):`);
-    for (const a of found) {
-      console.log(`  ${a.handle} -> ${a.configDir}`);
+
+    console.log(`Found ${found.length} discovered account(s).`);
+    for (let index = 0; index < candidates.length; index++) {
+      const candidate = candidates[index];
+      const marker = candidate.selected ? "x" : " ";
+      console.log(
+        `  ${index + 1}. [${marker}] ${candidate.account.handle} (${candidate.status}) -> ${candidate.account.configDir}`,
+      );
     }
-    if (!opts.dryRun) {
-      saveConfig({ accounts: found });
-      console.log("\nSaved to config.");
+
+    let selectedIndexes: number[];
+    if (opts.yes) {
+      selectedIndexes = candidates.map((_, index) => index);
+    } else if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      selectedIndexes = candidates
+        .map((candidate, index) => (candidate.selected ? index : -1))
+        .filter((index) => index !== -1);
+      if (!opts.dryRun) {
+        console.log(
+          "\nNon-interactive shell detected. Not saving; pass --yes to save all configured and discovered accounts.",
+        );
+        return;
+      }
+    } else {
+      const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+      const answer = await rl.question(
+        "\nSelect accounts to keep (default checked, e.g. 1,3-4, all, none): ",
+      );
+      rl.close();
+      try {
+        selectedIndexes = parseScanSelection(answer, candidates);
+      } catch (err) {
+        console.error((err as Error).message);
+        process.exit(1);
+      }
     }
-    const dupes = findDuplicates(found);
+
+    const nextConfig = mergeScannedAccounts(
+      config,
+      candidates,
+      selectedIndexes,
+    );
+    if (opts.dryRun) {
+      console.log("\nDry run; would save:");
+      for (const account of nextConfig.accounts) {
+        console.log(`  ${account.handle} -> ${account.configDir}`);
+      }
+    } else {
+      saveConfig(nextConfig);
+      console.log(
+        `\nSaved ${nextConfig.accounts.length} account(s) to config.`,
+      );
+    }
+    const dupes = findDuplicates(nextConfig.accounts);
     if (dupes.size > 0) {
       console.log(
         "\nWarning: duplicate accounts detected (same underlying identity):",
@@ -334,6 +400,83 @@ program
     }
     for (const a of accounts) {
       console.log(`  ${a.handle} -> ${a.configDir}`);
+    }
+  });
+
+const configCommand = program
+  .command("config")
+  .description("Show or update settings");
+
+configCommand
+  .command("show")
+  .description("Show effective settings")
+  .option("--json", "Output as JSON", false)
+  .action((opts) => {
+    const settings = resolveSettings();
+    if (opts.json) {
+      console.log(JSON.stringify(settings, null, 2));
+      return;
+    }
+    for (const [key, value] of Object.entries(settings)) {
+      console.log(`  ${key}: ${value}`);
+    }
+  });
+
+configCommand
+  .command("set")
+  .description("Set a configuration setting")
+  .argument("<key>", "Setting key")
+  .argument("<value>", "Setting value")
+  .action((key: string, value: string) => {
+    try {
+      const settings = setSetting(key, value);
+      console.log(`Set ${key}: ${settings[key as keyof typeof settings]}`);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exit(1);
+    }
+  });
+
+const reset = program
+  .command("reset")
+  .description("Manage quota reset overrides");
+
+reset
+  .command("set")
+  .description("Set an account-level quota reset override")
+  .argument("<handle>", "Account handle")
+  .argument("<time>", "Reset timestamp or date parseable by JavaScript Date")
+  .action((handle: string, time: string) => {
+    const account = listAccounts().find((entry) => entry.handle === handle);
+    if (!account) {
+      console.error(`Account not found: ${handle}`);
+      process.exit(1);
+    }
+    const resetAt = new Date(time);
+    if (Number.isNaN(resetAt.getTime())) {
+      console.error(`Invalid reset time: ${time}`);
+      process.exit(1);
+    }
+    recordAccountTiming(
+      handle,
+      resetAt,
+      "manual_override",
+      "high",
+      new Date(),
+      "manual override",
+    );
+    console.log(`Reset override set for ${handle}: ${resetAt.toISOString()}`);
+  });
+
+reset
+  .command("clear")
+  .description("Clear an account-level quota reset override")
+  .argument("<handle>", "Account handle")
+  .action((handle: string) => {
+    if (clearAccountTiming(handle)) {
+      console.log(`Reset override cleared for ${handle}`);
+    } else {
+      console.log(`No reset override found for ${handle}`);
     }
   });
 

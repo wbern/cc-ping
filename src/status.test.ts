@@ -62,6 +62,8 @@ describe("getAccountStatuses", () => {
       lastPing: null,
       windowStatus: "unknown",
       timeUntilReset: null,
+      resetSource: null,
+      resetConfidence: null,
       lastCostUsd: null,
       lastTokens: null,
     });
@@ -79,6 +81,8 @@ describe("getAccountStatuses", () => {
       lastPing: "2025-01-01T00:00:00.000Z",
       windowStatus: "active",
       timeUntilReset: "4h 0m",
+      resetSource: "estimated",
+      resetConfidence: "low",
       lastCostUsd: null,
       lastTokens: null,
     });
@@ -96,6 +100,8 @@ describe("getAccountStatuses", () => {
       lastPing: "2025-01-01T00:00:00.000Z",
       windowStatus: "needs ping",
       timeUntilReset: null,
+      resetSource: null,
+      resetConfidence: null,
       lastCostUsd: null,
       lastTokens: null,
     });

@@ -10,6 +10,10 @@ describe("generateCompletion", () => {
     expect(script).toContain("ping");
     expect(script).toContain("scan");
     expect(script).toContain("suggest");
+    expect(script).toContain("reset");
+    expect(script).toContain("config");
+    expect(script).toContain("pingMode");
+    expect(script).toContain("model");
     expect(script).toContain("cc-ping list");
     expect(script).toContain("daemon");
     expect(script).toContain("start stop status install uninstall");
@@ -25,6 +29,10 @@ describe("generateCompletion", () => {
     expect(script).toContain("ping");
     expect(script).toContain("scan");
     expect(script).toContain("cc-ping list");
+    expect(script).toContain("config:Show or update settings");
+    expect(script).toContain("reset:Manage reset overrides");
+    expect(script).toContain("promptStyle");
+    expect(script).toContain("model");
     expect(script).toContain("daemon");
     expect(script).toContain("Start the daemon process");
     expect(script).toContain("Install as system service");
@@ -39,6 +47,11 @@ describe("generateCompletion", () => {
     expect(script).toContain("ping");
     expect(script).toContain("scan");
     expect(script).toContain("cc-ping list");
+    expect(script).toContain("complete -c cc-ping");
+    expect(script).toContain("Show or update settings");
+    expect(script).toContain("Manage reset overrides");
+    expect(script).toContain("interactiveExitDelayMs");
+    expect(script).toContain("model");
     expect(script).toContain("daemon");
     expect(script).toContain("Start the daemon");
     expect(script).toContain("Install as system service");

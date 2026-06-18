@@ -1,7 +1,11 @@
 import { ringBell } from "./bell.js";
 import { green, red } from "./color.js";
 import { runNotifyCommand } from "./command-notify.js";
-import { getNotifyCommand, getRemoteNotify } from "./config.js";
+import {
+  getNotifyCommand,
+  getRemoteNotify,
+  resolveSettings,
+} from "./config.js";
 import { appendHistoryEntry } from "./history.js";
 import { createLogger } from "./logger.js";
 import { sendNotification } from "./notify.js";
@@ -10,6 +14,7 @@ import { sendRemoteNotification } from "./remote-notify.js";
 import {
   formatTimeRemaining,
   getWindowReset,
+  recordAccountTiming,
   recordAuthFailure,
   recordPing,
 } from "./state.js";
@@ -99,6 +104,7 @@ export async function runPing(
     options._sleep ??
     ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   let results: PingResult[];
+  const settings = resolveSettings();
 
   if (options.staggerMs && options.staggerMs > 0 && accounts.length > 1) {
     results = [];
@@ -110,6 +116,13 @@ export async function runPing(
       }
       const [result] = await pingAccounts([accounts[i]], {
         signal: options.signal,
+        mode: settings.pingMode,
+        model: settings.model,
+        promptStyle: settings.promptStyle,
+        interactiveExitDelayMs: settings.interactiveExitDelayMs,
+        interactiveReadyPattern: settings.interactiveReadyPattern,
+        interactiveReadyFallbackDelayMs:
+          settings.interactiveReadyFallbackDelayMs,
       });
       results.push(result);
     }
@@ -117,6 +130,12 @@ export async function runPing(
     results = await pingAccounts(accounts, {
       parallel: options.parallel,
       signal: options.signal,
+      mode: settings.pingMode,
+      model: settings.model,
+      promptStyle: settings.promptStyle,
+      interactiveExitDelayMs: settings.interactiveExitDelayMs,
+      interactiveReadyPattern: settings.interactiveReadyPattern,
+      interactiveReadyFallbackDelayMs: settings.interactiveReadyFallbackDelayMs,
     });
   }
 
@@ -133,7 +152,9 @@ export async function runPing(
       handle: r.handle,
       success: r.success,
       durationMs: r.durationMs,
+      failureReason: r.failureReason,
       error: r.error,
+      quotaResetAt: r.rateLimitResetAt?.toISOString(),
     });
     if (r.success) {
       let meta: PingMeta | undefined;
@@ -150,6 +171,16 @@ export async function runPing(
     } else if (r.claudeResponse && isAuthError(r.claudeResponse)) {
       // Session auth expired — flag it so `cc-ping login` can re-auth it.
       recordAuthFailure(r.handle);
+    }
+    if (r.rateLimitResetAt) {
+      recordAccountTiming(
+        r.handle,
+        r.rateLimitResetAt,
+        "parsed_rate_limit",
+        "medium",
+        new Date(),
+        r.error,
+      );
     }
   }
 
@@ -288,7 +319,9 @@ export async function runPing(
       handle: r.handle,
       success: r.success,
       durationMs: r.durationMs,
+      failureReason: r.failureReason,
       error: r.error,
+      quotaResetAt: r.rateLimitResetAt?.toISOString(),
     }));
     stdout(JSON.stringify(jsonResults, null, 2));
     return {
